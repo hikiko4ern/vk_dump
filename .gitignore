@@ -1,4 +1,12 @@
+# Cache & IDEs
 __pycache__
 .vscode
+
+# Dump folder
 dump
+
+# Configs
 vk_config*json
+
+# feat.
+feat.py

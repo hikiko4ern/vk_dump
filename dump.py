@@ -9,7 +9,10 @@ from math import ceil
 
 import vk_api
 
-VERSION = '0.3'
+VERSION = '0.4'
+API_VERSION = '5.80'
+
+REPLACE_SPACES = True # заменять пробелы на _ [в будущем будет возможность менять в настройках]
 
 ### Dump funcs
 
@@ -33,12 +36,12 @@ def init():
 
 def log(*msg):
   clear()
-  global login, password, vk
+  global login, password, vk_session, vk
   cprint(msg[0] if msg else '[для продолжения необходимо войти]', color='red', mod='bold', offset=2, delay=1/50)
   try:
     login = input('  login: \x1b[1;36m'); print('\x1b[0m',end='')
     password = input('  password: \x1b[1;36m'); print('\x1b[0m',end='')
-    vk_session = vk_api.VkApi(login, password, app_id=6631721, auth_handler=auth_handler)
+    vk_session = vk_api.VkApi(login, password, app_id=6631721, auth_handler=auth_handler, api_version=API_VERSION)
     vk_session.auth(token_only=True)
     vk = vk_session.get_api()
   except KeyboardInterrupt as kbi:
@@ -56,7 +59,7 @@ def auth_handler():
 
 def download(url, folder, **kwargs):
   if 'name' in kwargs:
-    fn = '_'.join(kwargs['name'].split(' '))
+    fn = '_'.join(kwargs['name'].split(' ')) if REPLACE_SPACES else kwargs['name']
     if 'ext' in kwargs:
       if fn.split('.')[-1] != kwargs['ext']:
         fn += '.{}'.format(kwargs['ext'])
@@ -65,6 +68,7 @@ def download(url, folder, **kwargs):
   
   if not exists(pjoin(folder, fn)):
     urlretrieve(url, pjoin(folder, fn))
+
 
 
 def dump_photos():
@@ -79,17 +83,39 @@ def dump_photos():
     photos = vk.photos.get(album_id=al['id'], photo_sizes=1, count=1000)
     i, count = 1, photos['count']
     if count == 0:
-      print('\r    0/0')
+      print('    0/0')
     else:
       for r in range(ceil(count/1000)):
         for p in photos['items']:
-          print('\r    {}/{}'.format(i, count), end='')
-          download(p['sizes'][-1]['src'], folder)
+          print('    {}/{}'.format(i, count), end='\r')
+          download(p['sizes'][-1]['url'], folder)
           i += 1
         photos = vk.photos.get(album_id=al['id'], photo_sizes=1, count=1000, offset=(r+1)*1000)
-      print()
-  print('\x1b[32mСохранение успешно завершено :з\x1b[0m')
-  input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
+
+
+
+def dump_audio():
+  import vk_api.audio
+
+  print('\n[получение списка аудио]')
+  audio = vk_api.audio.VkAudio(vk_session).get()
+  print()
+
+  folder = pjoin('dump', 'audio'); makedirs(folder, exist_ok=True)
+
+  print('Сохранение аудио:')
+  i, count = 1, len(audio)
+
+  if count == 0:
+    print('  0/0')
+  else:
+    for a in audio:
+      print('  {}/{}'.format(i, count), end='\r')
+      download(a['url'], folder,
+        name='{artist} - {title}_{id}'.format(artist=a['artist'], title=a['title'], id=a['id']),
+        ext='mp3')
+      i += 1
+
 
 
 def dump_video():
@@ -111,11 +137,11 @@ def dump_video():
       video = vk.video.get(album_id=al['id'], count=200)
       i, videoCount = 1, video['count']
       if videoCount == 0:
-        print('\r    0/0')
+        print('    0/0')
       else:
         for vr in range(ceil(videoCount/200)):
           for v in video['items']:
-            print('\r    {}/{}'.format(i, videoCount), end='')
+            print('    {}/{}'.format(i, videoCount), end='\r')
             download(
               research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode(),
               folder, name=v['title']+'_'+str(v['id']), ext='mp4')
@@ -123,9 +149,6 @@ def dump_video():
             i += 1
           video = vk.video.get(album_id=al['id'], count=200, offset=(vr+1)*200)
     albums = vk.video.getAlbums(count=100, need_system=1, offset=(ar+1)*100)
-  print()
-  print('\x1b[32mСохранение успешно завершено :з\x1b[0m')
-  input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
 
 
 
@@ -143,9 +166,11 @@ def dump_docs():
       download(d['url'], folder, name=d['title']+'_'+str(d['id']), ext=d['ext'])
       # во избежание конфликта имён к имени файла добавляется его ID
       i += 1
-  print()
-  print('\x1b[32mСохранение успешно завершено :з\x1b[0m')
-  input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
+
+
+
+def dump_messages():
+  pass
 
 
 
@@ -154,6 +179,7 @@ def dump_docs():
 clear = lambda: print('\x1b[2J', '\x1b[1;1H', end='', flush=True)
 
 def lprint(*args, **kwargs):
+  print('\x1b[?25l')
   for s in args:
     if s.find('\x1b') == -1:
       for ch in s:
@@ -161,7 +187,7 @@ def lprint(*args, **kwargs):
         sleep(kwargs['delay'] if 'delay' in kwargs else 1/30)
     else:
       print(s, end='')
-  print()
+  print('\x1b[?25h')
 
 def cprint(msg, **kwargs):
   if not 'offset' in kwargs: kwargs['offset'] = 0
@@ -209,6 +235,7 @@ def menu():
 
   actions = [
     'Фото (по альбомам)', dump_photos,
+    'Аудио', dump_audio,
     'Видео (по альбомам)', dump_video,
     'Документы', dump_docs
   ]
@@ -225,7 +252,10 @@ def menu():
     if choice is exit:
       goodbye()
     else:
-      choice(); menu()
+      choice()
+      print('\n\x1b[32mСохранение успешно завершено :з\x1b[0m')
+      input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
+      menu()
   except IndexError as ie:
     cprint('Выберите действие из доступных', '\x1b[1;31m'); sleep(2); clear(); menu()
   except KeyboardInterrupt as kbi:
