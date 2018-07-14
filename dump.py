@@ -340,7 +340,7 @@ def dump_messages():
         add_user(u)
 
     # write history to .txt file
-    with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w+') as f:
+    with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
       count = len(history['items'])
       print('    [сохранение]')
       print('\x1b[2K      {}/{}'.format(0, count), end='\r')
