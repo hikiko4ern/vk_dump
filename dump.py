@@ -1,7 +1,7 @@
 ### Imports
 
 from math import ceil
-from os import get_terminal_size, makedirs
+from os import get_terminal_size, makedirs, name as osname
 from os.path import exists, join as pjoin
 from sys import stdout, stdin
 from time import sleep
@@ -14,7 +14,8 @@ from pprint import pprint
 VERSION = '0.5.1'
 API_VERSION = '5.80'
 
-REPLACE_SPACES = True # заменять пробелы на _ [в будущем будет возможность менять в настройках]
+REPLACE_SPACES = True # заменять пробелы на _
+REPLACE_CHAR = "'" # символ для замены запрещённых в Windows символов
 
 ### Dump funcs
 
@@ -67,6 +68,10 @@ def download(url, folder, **kwargs):
         fn += '.{}'.format(kwargs['ext'])
   else:
     fn = url.split('/')[-1]
+  
+  if osname == 'nt':
+    for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
+      fn = fn.replace(c, REPLACE_CHAR)
   
   if not exists(pjoin(folder, fn)):
     urlretrieve(url, pjoin(folder, fn))
@@ -135,25 +140,28 @@ def dump_video():
   albumsCount = albums['count']
 
   for ar in range(ceil((albumsCount-100)/100)):
-    for al in albums['items']:
-      print('  Альбом "{}":'.format(al['title']))
-      folder = pjoin('dump', 'video', '_'.join(al['title'].split(' '))); makedirs(folder, exist_ok=True)
-      video = vk.video.get(album_id=al['id'], count=200)
-      i, videoCount = 1, video['count']
-      if videoCount == 0:
-        print('    0/0')
-      else:
-        for vr in range(ceil((videoCount-200)/200)):
-          for v in video['items']:
-            print('\x1b[2K    {}/{}'.format(i, videoCount), end='\r')
-            download(
-              research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode(),
-              folder, name=v['title']+'_'+str(v['id']), ext='mp4')
-              # во избежание конфликта имён к имени файла добавляется его ID
-            i += 1
-          video = vk.video.get(album_id=al['id'], count=200, offset=(vr+1)*200)
-        print()
-    albums = vk.video.getAlbums(count=100, need_system=1, offset=(ar+1)*100)
+    albums['items'] += vk.video.getAlbums(count=100, need_system=1, offset=(ar+1)*100)['items']
+    
+  for al in albums['items']:
+    print('  Альбом "{}":'.format(al['title']))
+    folder = pjoin('dump', 'video', '_'.join(al['title'].split(' '))); makedirs(folder, exist_ok=True)
+    video = vk.video.get(album_id=al['id'], count=200)
+    i, videoCount = 1, video['count']
+    if videoCount == 0:
+      print('    0/0')
+    else:
+      for vr in range(ceil((videoCount-200)/200)):
+        video['items'] += vk.video.get(album_id=al['id'], count=200, offset=(vr+1)*200)['items']
+      
+      for v in video['items']:
+        print('\x1b[2K    {}/{}'.format(i, videoCount), end='\r')
+        download(
+          research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode(),
+          folder, name=v['title']+'_'+str(v['id']), ext='mp4')
+          # во избежание конфликта имён к имени файла добавляется его ID
+        i += 1
+      print()
+    
 
 
 
@@ -276,20 +284,21 @@ def dump_messages():
   if 'groups' not in conversations: conversations['groups'] = []
   i, count = len(conversations['items']), conversations['count']
   print('\x1b[2K  {}/{}'.format(i, count), end='\r')
-  for i in range(ceil((conversations['count']-200)/200)):
-    tmp = vk.messages.getConversations(count=200, offset=(i+1)*200, extended=1, fields='first_name, last_name, name')
-    conversations['items'] += tmp['items']
-    if 'profiles' in tmp:
-      for p in tmp['profiles']:
-        if p not in conversations['profiles']:
-          conversations['profiles'] += tmp['profiles']
-    if 'groups' in tmp:
-      for p in tmp['groups']:
-        if p not in conversations['groups']:
-          conversations['groups'] += tmp['groups']
-    i = len(conversations['items'])
-    print('\x1b[2K  {}/{}'.format(i, count), end='\r')
-  print('\n')
+  if i < count:
+    for i in range(ceil((conversations['count']-200)/200)):
+      tmp = vk.messages.getConversations(count=200, offset=(i+1)*200, extended=1, fields='first_name, last_name, name')
+      conversations['items'] += tmp['items']
+      if 'profiles' in tmp:
+        for p in tmp['profiles']:
+          if p not in conversations['profiles']:
+            conversations['profiles'] += tmp['profiles']
+      if 'groups' in tmp:
+        for p in tmp['groups']:
+          if p not in conversations['groups']:
+            conversations['groups'] += tmp['groups']
+      i = len(conversations['items'])
+      print('\x1b[2K  {}/{}'.format(i, count), end='\r')
+    print('\n')
 
 
   users = {}
@@ -313,9 +322,6 @@ def dump_messages():
     else:
       dialog_name = r'{unknown}'
     
-    # if exists(pjoin('dump', 'dialogs', '{}.txt'.format('_'.join(dialog_name.split(' '))))):
-    #   continue
-
     print('  Диалог: {}'.format(dialog_name))
     print('    [кэширование]')
     print('\x1b[2K      0/???', end='\r')
@@ -340,6 +346,10 @@ def dump_messages():
         add_user(u)
 
     # write history to .txt file
+    if osname == 'nt':
+      for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
+        dialog_name = dialog_name.replace(c, REPLACE_CHAR)
+    
     with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
       count = len(history['items'])
       print('    [сохранение]')
