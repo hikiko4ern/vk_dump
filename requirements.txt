@@ -1,1 +1,1 @@
-vk_api
+vk_api==11.0

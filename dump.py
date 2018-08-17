@@ -14,7 +14,7 @@ from pprint import pprint
 VERSION = '0.5.1'
 API_VERSION = '5.80'
 
-REPLACE_SPACES = True # заменять пробелы на _
+REPLACE_SPACES = False # заменять пробелы на _
 REPLACE_CHAR = "'" # символ для замены запрещённых в Windows символов
 
 ### Dump funcs
@@ -106,21 +106,29 @@ def dump_audio():
   import vk_api.audio
 
   print('\n[получение списка аудио]')
-  audio = vk_api.audio.VkAudio(vk_session).get()
-  print()
+  audio = vk_api.audio.VkAudio(vk_session).get_iter()
+  amount = vk.users.get(fields='counters')[0]['counters']['audios']
+  
+  tracks = []; i, count = 1, amount
+  for i in range(amount):
+    print('\x1b[2K  {}/{}'.format(i+1, count), end='\r')
+    tracks.append(next(audio))
+    sleep(.34)
+    i += 1
+  print(); print()
 
   folder = pjoin('dump', 'audio'); makedirs(folder, exist_ok=True)
 
   print('Сохранение аудио:')
-  i, count = 1, len(audio)
+  i, count = 1, amount
 
   if count == 0:
     print('  0/0')
   else:
-    for a in audio:
+    for a in tracks:
       print('\x1b[2K  {}/{}'.format(i, count), end='\r')
       download(a['url'], folder,
-        name='{artist} - {title}_{id}'.format(artist=a['artist'], title=a['title'], id=a['id']),
+        name='{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']),
         ext='mp3')
       i += 1
     print()
