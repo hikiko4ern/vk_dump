@@ -45,7 +45,7 @@ def log(*msg):
     stdin.flush(); login = input('  login: \x1b[1;36m'); print('\x1b[0m',end='')
     stdin.flush(); password = input('  password: \x1b[1;36m'); print('\x1b[0m',end='')
     vk_session = vk_api.VkApi(login, password, app_id=6631721, auth_handler=auth_handler, api_version=API_VERSION)
-    vk_session.auth(token_only=True)
+    vk_session.auth(token_only=True, reauth=True)
     vk = vk_session.get_api()
   except KeyboardInterrupt as kbi:
     goodbye()
@@ -68,11 +68,11 @@ def download(url, folder, **kwargs):
         fn += '.{}'.format(kwargs['ext'])
   else:
     fn = url.split('/')[-1]
-  
+
   if osname == 'nt':
     for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
       fn = fn.replace(c, REPLACE_CHAR)
-  
+
   if not exists(pjoin(folder, fn)):
     urlretrieve(url, pjoin(folder, fn))
 
@@ -108,7 +108,7 @@ def dump_audio():
   print('\n[получение списка аудио]')
   audio = vk_api.audio.VkAudio(vk_session).get_iter()
   amount = vk.users.get(fields='counters')[0]['counters']['audios']
-  
+
   tracks = []; i, count = 1, amount
   for i in range(amount):
     print('\x1b[2K  {}/{}'.format(i+1, count), end='\r')
@@ -149,7 +149,7 @@ def dump_video():
 
   for ar in range(ceil((albumsCount-100)/100)):
     albums['items'] += vk.video.getAlbums(count=100, need_system=1, offset=(ar+1)*100)['items']
-    
+
   for al in albums['items']:
     print('  Альбом "{}":'.format(al['title']))
     folder = pjoin('dump', 'video', '_'.join(al['title'].split(' '))); makedirs(folder, exist_ok=True)
@@ -160,7 +160,7 @@ def dump_video():
     else:
       for vr in range(ceil((videoCount-200)/200)):
         video['items'] += vk.video.get(album_id=al['id'], count=200, offset=(vr+1)*200)['items']
-      
+
       for v in video['items']:
         print('\x1b[2K    {}/{}'.format(i, videoCount), end='\r')
         download(
@@ -169,7 +169,7 @@ def dump_video():
           # во избежание конфликта имён к имени файла добавляется его ID
         i += 1
       print()
-    
+
 
 
 
@@ -227,7 +227,7 @@ def dump_messages():
               add_user(vk.users.get(user_ids=fwd['from_id'])[0])
             except Exception as e:
               users[fwd['from_id']] = {'name': r'{unknown user}', 'length': 3}
-          
+
           r.append('{name}> {}'.format(res[0], name=users.get(fwd['from_id'])['name']))
           for m in res[1:]:
             r.append('{name}> {}'.format(m, name=' '*len(users.get(fwd['from_id'])['name'])))
@@ -306,7 +306,7 @@ def dump_messages():
             conversations['groups'] += tmp['groups']
       i = len(conversations['items'])
       print('\x1b[2K  {}/{}'.format(i, count), end='\r')
-    print('\n')
+    print()
 
 
   users = {}
@@ -318,7 +318,7 @@ def dump_messages():
   print('Сохранение диалогов:')
   for con in conversations['items']:
     did = con['conversation']['peer']['id']
-    
+
     if con['conversation']['peer']['type'] == 'user':
       if did not in users:
         add_user(vk.users.get(user_ids=did)[0])
@@ -329,7 +329,7 @@ def dump_messages():
       dialog_name = con['conversation']['chat_settings']['title']
     else:
       dialog_name = r'{unknown}'
-    
+
     print('  Диалог: {}'.format(dialog_name))
     print('    [кэширование]')
     print('\x1b[2K      0/???', end='\r')
@@ -357,7 +357,7 @@ def dump_messages():
     if osname == 'nt':
       for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
         dialog_name = dialog_name.replace(c, REPLACE_CHAR)
-    
+
     with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
       count = len(history['items'])
       print('    [сохранение]')
@@ -400,7 +400,7 @@ def cprint(msg, **kwargs):
   if not 'offset' in kwargs: kwargs['offset'] = 0
   kwargs['color'] = colors[kwargs['color']] if 'color' in kwargs else mods['nrm']
   if 'mod' in kwargs: kwargs['color'] += mods[kwargs['mod']]
-  
+
   lprint(kwargs['color']+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg)/2), y=int(h/2-(len(msg.split('\n'))/2)+1-kwargs['offset'])), msg, mods['nrm'], **kwargs)
 
 def welcome():
