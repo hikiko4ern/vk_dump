@@ -1,14 +1,14 @@
 ### Imports
 from math import ceil
-from os import get_terminal_size, makedirs, name as osname
+from os import get_terminal_size, makedirs, walk, name as osname
 from os.path import exists, join as pjoin
 from sys import stdout, stdin
 from time import sleep
 from urllib.request import urlopen, urlretrieve
+import itertools
+from multiprocessing import Pool
 
-import wget, vk_api
-
-from pprint import pprint
+import vk_api
 
 NAME = 'VK Dump Tool'
 VERSION = '0.5.1'
@@ -16,6 +16,8 @@ API_VERSION = '5.87'
 
 REPLACE_SPACES = False # заменять пробелы на _
 REPLACE_CHAR = '_' # символ для замены запрещённых в Windows символов
+
+INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 
 ### Dump funcs
 
@@ -61,7 +63,9 @@ def auth_handler():
   remember_device = True
   return key, remember_device
 
-def download(url, folder, **kwargs):
+def download(url, folder, *args):
+  kwargs = args[0] if (len(args) == 1 and isinstance(args[0], dict)) else {}
+
   if 'name' in kwargs:
     fn = '_'.join(kwargs['name'].split(' ')) if REPLACE_SPACES else kwargs['name']
     if 'ext' in kwargs:
@@ -70,17 +74,15 @@ def download(url, folder, **kwargs):
   else:
     fn = url.split('/')[-1]
 
-  for c in ['\\', '/']:
+  for c in INVALID_CHARS:
     fn = fn.replace(c, REPLACE_CHAR)
 
-  if osname == 'nt':
-    for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
-      fn = fn.replace(c, REPLACE_CHAR)
-
   if not exists(pjoin(folder, fn)):
-    wget.download(url, pjoin(folder, fn))
-    # with open(pjoin(folder, fn), 'wb') as bf:
-    #   bf.write(urlopen(url).read())
+    try:
+      with open(pjoin(folder, fn), 'wb') as bf:
+        bf.write(urlopen(url).read())
+    except Exception as e:
+      pass
 
 
 
@@ -94,22 +96,23 @@ def dump_photos():
     print('  Альбом "{}":'.format(al['title']))
     folder = pjoin('dump', 'photos', '_'.join(al['title'].split(' '))); makedirs(folder, exist_ok=True)
     photos = vk.photos.get(album_id=al['id'], photo_sizes=1, count=1000)
-    i, count = 1, photos['count']
+    count = photos['count']
     if count == 0:
       print('    0/0')
     else:
       for r in range(ceil(count/1000)):
-        for p in photos['items']:
-          stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
-          download(p['sizes'][-1]['url'], folder)
-          i += 1
-        print('\r\x1b[2K    {}/{}'.format(i-1, count), end='')
-        photos = vk.photos.get(album_id=al['id'], photo_sizes=1, count=1000, offset=(r+1)*1000)
-      print()
+        photos['items'] += vk.photos.get(album_id=al['id'], photo_sizes=1, count=1000, offset=(r+1)*1000)['items']
+      urls = []
+      for p in photos['items']:
+        urls.append(p['sizes'][-1]['url'])
+      with Pool() as pool:
+        pool.starmap(download, zip(urls, itertools.repeat(folder)))
+      print('\r\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), count))
 
 
 
 def dump_audio():
+  global folder
   import vk_api.audio
 
   print('\n[получение списка аудио]')
@@ -120,18 +123,24 @@ def dump_audio():
   folder = pjoin('dump', 'audio'); makedirs(folder, exist_ok=True)
 
   print('Сохранение аудио:')
-  i, count = 1, len(tracks)
+  count = len(tracks)
 
   if count == 0:
     print('  0/0')
   else:
+    urls = []
+    kwargs = []
     for a in tracks:
-      stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
-      download(a['url'], folder,
-        name='{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']),
-        ext='mp3')
-      i += 1
-    print('\r\x1b[2K  {}/{}'.format(i-1, count))
+      urls.append(a['url'])
+      kwargs.append({'name': '{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']), 'ext': 'mp3'})
+      # stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
+      # download(a['url'], folder,
+      #   name='{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']),
+      #   ext='mp3')
+
+    with Pool() as pool:
+      pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
+    print('\r\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), count))
 
 
 
@@ -153,21 +162,21 @@ def dump_video():
     print('  Альбом "{}":'.format(al['title']))
     folder = pjoin('dump', 'video', '_'.join(al['title'].split(' '))); makedirs(folder, exist_ok=True)
     video = vk.video.get(album_id=al['id'], count=200)
-    i, videoCount = 1, video['count']
+    videoCount = video['count']
     if videoCount == 0:
       print('    0/0')
     else:
       for vr in range(ceil((videoCount-200)/200)):
         video['items'] += vk.video.get(album_id=al['id'], count=200, offset=(vr+1)*200)['items']
 
+      urls = []
+      kwargs = []
       for v in video['items']:
-        stdout.write('\x1b]0;{}/{}\x07'.format(i, videoCount))
-        download(
-          research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode(),
-          folder, name=v['title']+'_'+str(v['id']), ext='mp4')
-          # во избежание конфликта имён к имени файла добавляется его ID
-        i += 1
-      print('\r\x1b[2K    {}/{}'.format(i-1, videoCount))
+        urls.append(research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode())
+        kwargs.append({'name': v['title']+'_'+str(v['id']), 'ext': 'mp4'}) # во избежание конфликта имён к имени файла добавляется его ID
+      with Pool() as pool:
+        pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
+      print('\r\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), videoCount))
 
 
 
@@ -175,18 +184,23 @@ def dump_video():
 def dump_docs():
   folder = pjoin('dump', 'docs')
   makedirs(folder, exist_ok=True)
+
   docs = vk.docs.get()
+
   print('Сохраненние документов:')
-  i, count = 1, docs['count']
+  count = docs['count']
+
   if count == 0:
-    print('  0/0', end='\r')
+    print('  0/0')
   else:
+    urls = []
+    kwargs = []
     for d in docs['items']:
-      stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
-      download(d['url'], folder, name=d['title']+'_'+str(d['id']), ext=d['ext'])
-      # во избежание конфликта имён к имени файла добавляется его ID
-      i += 1
-    print('\r\x1b[2K  {}/{}'.format(i-1, count))
+      urls.append(d['url'])
+      kwargs.append({'name': d['title']+'_'+str(d['id']), 'ext': d['ext']}) # во избежание конфликта имён к имени файла добавляется его ID
+    with Pool() as pool:
+      pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
+    print('\r\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), count))
 
 
 
@@ -211,7 +225,7 @@ def dump_messages():
 
       [документация API]
         [вложения]
-          [сообщениях]
+          [сообщения]
             - vk.com/dev/objects/attachments_m
           [wall_reply]
             - vk.com/dev/objects/attachments_w
@@ -277,7 +291,11 @@ def dump_messages():
         elif tp == 'gift':
           r.append('[подарок: {id}]'.format(id=at[tp]['id']))
         elif tp == 'graffiti':
-          r.append('[граффити: {url}]'.format(url=at[tp]['photo_604']))
+          r.append('[граффити: {url}]'.format(url=at[tp]['url']))
+        elif tp == 'audio_message':
+          r.append('[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
+        else:
+          r.append('[вложение с типом "{tp}"]'.format(tp=tp))
 
     return r
 
@@ -305,6 +323,7 @@ def dump_messages():
           if p not in conversations['groups']:
             conversations['groups'] += tmp['groups']
       i = len(conversations['items'])
+      count = conversations['count'] = tmp['count']
       print('\x1b[2K  {}/{}'.format(i, count), end='\r')
     print()
 
@@ -345,6 +364,7 @@ def dump_messages():
           if p not in history['profiles']:
             history['profiles'] += tmp['profiles']
       i = len(history['items'])
+      count = history['count'] = tmp['count']
       print('\x1b[2K      {}/{}'.format(i, count), end='\r')
     print()
 
@@ -354,9 +374,8 @@ def dump_messages():
         add_user(u)
 
     # write history to .txt file
-    if osname == 'nt':
-      for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
-        dialog_name = dialog_name.replace(c, REPLACE_CHAR)
+    for c in INVALID_CHARS:
+      dialog_name = dialog_name.replace(c, REPLACE_CHAR)
 
     with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
       count = len(history['items'])
@@ -466,7 +485,7 @@ def menu():
       input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
       menu()
   except IndexError as ie:
-    cprint('Выберите действие из доступных', '\x1b[1;31m'); sleep(2); clear(); menu()
+    cprint('Выберите действие из доступных', color='red', mode='bold'); sleep(2); clear(); menu()
   except ValueError as ve:
     menu()
   except KeyboardInterrupt as kbi:
