@@ -1,5 +1,4 @@
 ### Imports
-
 from math import ceil
 from os import get_terminal_size, makedirs, name as osname
 from os.path import exists, join as pjoin
@@ -12,7 +11,7 @@ import vk_api
 from pprint import pprint
 
 VERSION = '0.5.1'
-API_VERSION = '5.80'
+API_VERSION = '5.87'
 
 REPLACE_SPACES = False # заменять пробелы на _
 REPLACE_CHAR = "'" # символ для замены запрещённых в Windows символов
@@ -74,7 +73,8 @@ def download(url, folder, **kwargs):
       fn = fn.replace(c, REPLACE_CHAR)
 
   if not exists(pjoin(folder, fn)):
-    urlretrieve(url, pjoin(folder, fn))
+    with open(pjoin(folder, fn), 'wb') as bf:
+      bf.write(urlopen(url).read())
 
 
 
@@ -136,7 +136,6 @@ def dump_audio():
 
 
 def dump_video():
-  from urllib.request import urlopen
   from re import search as research
 
   folder = pjoin('dump', 'video')
