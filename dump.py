@@ -6,20 +6,22 @@ from sys import stdout, stdin
 from time import sleep
 from urllib.request import urlopen, urlretrieve
 
-import vk_api
+import wget, vk_api
 
 from pprint import pprint
 
+NAME = 'VK Dump Tool'
 VERSION = '0.5.1'
 API_VERSION = '5.87'
 
 REPLACE_SPACES = False # заменять пробелы на _
-REPLACE_CHAR = "'" # символ для замены запрещённых в Windows символов
+REPLACE_CHAR = '_' # символ для замены запрещённых в Windows символов
 
 ### Dump funcs
 
 def init():
   global w, h, colors, mods
+
   w, h = get_terminal_size()
   colors = {
     'red': '\x1b[31m',
@@ -68,13 +70,17 @@ def download(url, folder, **kwargs):
   else:
     fn = url.split('/')[-1]
 
+  for c in ['\\', '/']:
+    fn = fn.replace(c, REPLACE_CHAR)
+
   if osname == 'nt':
     for c in ['\\', '/', ':', '*', '?', '<', '>', '|', '"']:
       fn = fn.replace(c, REPLACE_CHAR)
 
   if not exists(pjoin(folder, fn)):
-    with open(pjoin(folder, fn), 'wb') as bf:
-      bf.write(urlopen(url).read())
+    wget.download(url, pjoin(folder, fn))
+    # with open(pjoin(folder, fn), 'wb') as bf:
+    #   bf.write(urlopen(url).read())
 
 
 
@@ -94,9 +100,10 @@ def dump_photos():
     else:
       for r in range(ceil(count/1000)):
         for p in photos['items']:
-          print('\x1b[2K    {}/{}'.format(i, count), end='\r')
+          stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
           download(p['sizes'][-1]['url'], folder)
           i += 1
+        print('\r\x1b[2K    {}/{}'.format(i-1, count), end='')
         photos = vk.photos.get(album_id=al['id'], photo_sizes=1, count=1000, offset=(r+1)*1000)
       print()
 
@@ -119,12 +126,12 @@ def dump_audio():
     print('  0/0')
   else:
     for a in tracks:
-      print('\x1b[2K  {}/{}'.format(i, count), end='\r')
+      stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
       download(a['url'], folder,
         name='{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']),
         ext='mp3')
       i += 1
-    print()
+    print('\r\x1b[2K  {}/{}'.format(i-1, count))
 
 
 
@@ -154,13 +161,13 @@ def dump_video():
         video['items'] += vk.video.get(album_id=al['id'], count=200, offset=(vr+1)*200)['items']
 
       for v in video['items']:
-        print('\x1b[2K    {}/{}'.format(i, videoCount), end='\r')
+        stdout.write('\x1b]0;{}/{}\x07'.format(i, videoCount))
         download(
           research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode(),
           folder, name=v['title']+'_'+str(v['id']), ext='mp4')
           # во избежание конфликта имён к имени файла добавляется его ID
         i += 1
-      print()
+      print('\r\x1b[2K    {}/{}'.format(i-1, videoCount))
 
 
 
@@ -172,13 +179,14 @@ def dump_docs():
   print('Сохраненние документов:')
   i, count = 1, docs['count']
   if count == 0:
-    print('\x1b[2K  0/0', end='\r')
+    print('  0/0', end='\r')
   else:
     for d in docs['items']:
-      print('\x1b[2K  {}/{}'.format(i, count), end='\r')
+      stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
       download(d['url'], folder, name=d['title']+'_'+str(d['id']), ext=d['ext'])
       # во избежание конфликта имён к имени файла добавляется его ID
       i += 1
+    print('\r\x1b[2K  {}/{}'.format(i-1, count))
 
 
 
@@ -380,7 +388,7 @@ clear = lambda: print('\x1b[2J', '\x1b[1;1H', end='', flush=True)
 def lprint(*args, **kwargs):
   print('\x1b[?25l')
   for s in args:
-    if s.find('\x1b') == -1:
+    if (s.find('\x1b') == -1) and ('slow' in kwargs):
       for ch in s:
         stdout.write(ch); stdout.flush()
         sleep(kwargs['delay'] if 'delay' in kwargs else 1/30)
@@ -398,11 +406,11 @@ def cprint(msg, **kwargs):
 def welcome():
   clear()
   msg = [
-    '\x1b[1;32m', 'VK Dump Tool',
+    '\x1b[1;32m', NAME,
     '\x1b[0m', 'v'+VERSION
   ]
   for i in range(len(msg[::2])):
-    lprint(msg[i*2]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i*2+1])/2), y=int(h/2-(len(msg)/2)+i+2)), msg[i*2+1])
+    lprint(msg[i*2]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i*2+1])/2), y=int(h/2-(len(msg)/2)+i+2)), msg[i*2+1], slow=True)
   print('\x1b[?25l')
   sleep(2)
   print('\x1b[?25h')
@@ -411,7 +419,7 @@ def goodbye():
   clear()
   msg = ['\x1b[1;32m', 'Спасибо за использование скрипта :з']
   for i in range(len(msg[::2])):
-    lprint(msg[i*2]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i*2+1])/2), y=int(h/2-(len(msg)/2)+i+1)), msg[i*2+1], delay=1/50)
+    lprint(msg[i*2]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i*2+1])/2), y=int(h/2-(len(msg)/2)+i+1)), msg[i*2+1], delay=1/50, slow=True)
   exit()
 
 def logInfo():
@@ -453,16 +461,20 @@ def menu():
       goodbye()
     else:
       choice()
+      stdout.write('\x1b]0;{}\x07'.format(NAME))
       print('\n\x1b[32mСохранение успешно завершено :з\x1b[0m')
       input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
       menu()
   except IndexError as ie:
     cprint('Выберите действие из доступных', '\x1b[1;31m'); sleep(2); clear(); menu()
+  except ValueError as ve:
+    menu()
   except KeyboardInterrupt as kbi:
     goodbye()
 
 
 if __name__ == '__main__':
+  stdout.write('\x1b]0;{}\x07'.format(NAME))
   init()
   welcome()
   log()
