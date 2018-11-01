@@ -106,21 +106,14 @@ def dump_audio():
   import vk_api.audio
 
   print('\n[получение списка аудио]')
-  audio = vk_api.audio.VkAudio(vk_session).get_iter()
-  amount = vk.users.get(fields='counters')[0]['counters']['audios']
+  tracks = vk_api.audio.VkAudio(vk_session).get()
 
-  tracks = []; i, count = 1, amount
-  for i in range(amount):
-    print('\x1b[2K  {}/{}'.format(i+1, count), end='\r')
-    tracks.append(next(audio))
-    sleep(.34)
-    i += 1
-  print(); print()
+  print()
 
   folder = pjoin('dump', 'audio'); makedirs(folder, exist_ok=True)
 
   print('Сохранение аудио:')
-  i, count = 1, amount
+  i, count = 1, len(tracks)
 
   if count == 0:
     print('  0/0')
