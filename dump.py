@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 ### Imports
 from math import ceil
 from os import get_terminal_size, makedirs, walk, name as osname
@@ -7,6 +9,7 @@ from time import sleep
 from urllib.request import urlopen, urlretrieve
 import itertools
 from multiprocessing import Pool
+from configparser import ConfigParser
 
 import vk_api
 
@@ -14,15 +17,32 @@ NAME = 'VK Dump Tool'
 VERSION = '0.5.1'
 API_VERSION = '5.87'
 
-REPLACE_SPACES = False # заменять пробелы на _
-REPLACE_CHAR = '_' # символ для замены запрещённых в Windows символов
+settings = {
+  'REPLACE_SPACES': False, # заменять пробелы на _
+  'REPLACE_CHAR': '_' # символ для замены запрещённых в Windows символов
+}
 
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 
 ### Dump funcs
 
 def init():
-  global w, h, colors, mods
+  global w, h, colors, mods, settings
+
+  config = ConfigParser()
+  if not config.read('settings.ini'):
+    with open('settings.ini', 'w') as cf:
+      config['SETTINGS'] = settings
+      config.write(cf)
+  else:
+    for s in config['SETTINGS']:
+      c = config['SETTINGS'][s]
+      try:
+        settings[s.upper()] = int(c)
+      except ValueError:
+        settings[s.upper()] = True if c == 'True' else \
+                              False if c == 'False' else \
+                              c
 
   w, h = get_terminal_size()
   colors = {
@@ -40,23 +60,32 @@ def init():
   }
   makedirs('dump', exist_ok=True)
 
+def settings_save():
+  global settings
+
+  config = ConfigParser()
+  with open('settings.ini', 'w') as cf:
+    config['SETTINGS'] = settings
+    config.write(cf)
+
 def log(*msg):
   clear()
-  global login, password, vk_session, vk
+  global login, vk_session, vk
   cprint(msg[0] if msg else '[для продолжения необходимо войти]', color='red', mod='bold', offset=2, delay=1/50)
   try:
-    stdin.flush(); login = input('  login: \x1b[1;36m'); print('\x1b[0m',end='')
-    stdin.flush(); password = input('  password: \x1b[1;36m'); print('\x1b[0m',end='')
+    login = input('  login: \x1b[1;36m'); print('\x1b[0m',end='')
+    password = input('  password: \x1b[1;36m'); print('\x1b[0m',end='')
     vk_session = vk_api.VkApi(login, password, app_id=6631721, auth_handler=auth_handler, api_version=API_VERSION)
     vk_session.auth(token_only=True, reauth=True)
     vk = vk_session.get_api()
   except KeyboardInterrupt as kbi:
     goodbye()
+  except vk_api.exceptions.BadPassword as vk_bp:
+    log('Неправильный пароль.')
+  except vk_api.exceptions.Captcha as vk_captch:
+    log('Необходим ввод капчи.')
   except Exception as e:
-    if e.args[0] == 'Bad password':
-      log('Неверный пароль. Попробуйте ещё раз.')
-    else:
-      raise e
+    raise e
 
 def auth_handler():
   stdin.flush(); key = input('Введите код двухфакторой аутентификации: ')
@@ -67,7 +96,7 @@ def download(url, folder, *args):
   kwargs = args[0] if (len(args) == 1 and isinstance(args[0], dict)) else {}
 
   if 'name' in kwargs:
-    fn = '_'.join(kwargs['name'].split(' ')) if REPLACE_SPACES else kwargs['name']
+    fn = '_'.join(kwargs['name'].split(' ')) if settings['REPLACE_SPACES'] else kwargs['name']
     if 'ext' in kwargs:
       if fn.split('.')[-1] != kwargs['ext']:
         fn += '.{}'.format(kwargs['ext'])
@@ -75,7 +104,7 @@ def download(url, folder, *args):
     fn = url.split('/')[-1]
 
   for c in INVALID_CHARS:
-    fn = fn.replace(c, REPLACE_CHAR)
+    fn = fn.replace(c, settings['REPLACE_CHAR'])
 
   if not exists(pjoin(folder, fn)):
     try:
@@ -177,7 +206,6 @@ def dump_video():
       with Pool() as pool:
         pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
       print('\r\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), videoCount))
-
 
 
 
@@ -375,7 +403,7 @@ def dump_messages():
 
     # write history to .txt file
     for c in INVALID_CHARS:
-      dialog_name = dialog_name.replace(c, REPLACE_CHAR)
+      dialog_name = dialog_name.replace(c, settings['REPLACE_CHAR'])
 
     with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
       count = len(history['items'])
@@ -439,22 +467,61 @@ def goodbye():
   msg = ['\x1b[1;32m', 'Спасибо за использование скрипта :з']
   for i in range(len(msg[::2])):
     lprint(msg[i*2]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i*2+1])/2), y=int(h/2-(len(msg)/2)+i+1)), msg[i*2+1], delay=1/50, slow=True)
-  exit()
+  raise SystemExit
 
 def logInfo():
-  account = vk.account.getProfileInfo()
-  log = [
+  try:
+    account = vk.account.getProfileInfo()
+  except vk_api.exceptions.ApiError as ae:
+    log('Произошла ошибка при попытке авторизации.')
+
+  log_info = [
     'Login: \x1b[1;36m{}\x1b[0m'.format(login),
     'Name: \x1b[1;36m{fn} {ln}\x1b[0m'.format(fn=account['first_name'], ln=account['last_name'])
   ]
   ln = 0
-  for l in log:
+  for l in log_info:
     ln = max(len(l), ln)
 
   print('\x1b[1;31m'+'-'*(ln-7), end='\x1b[0m\n')
-  for l in log:
+  for l in log_info:
     print('\x1b[31m>\x1b[0m '+l)
   print('\x1b[1;31m'+'-'*(ln-7), end='\x1b[0m\n')
+
+def settings_screen():
+    clear(); logInfo(); print()
+    print('Настройки:\n')
+
+    i = 0
+    for s in settings:
+      print('\x1b[34m[{ind}]\x1b[0m {name}: {value}'.format(ind=i+1, name=s, value=settings[s]))
+      i += 1
+
+    print('\n\x1b[34m[0]\x1b[0m В меню')
+
+    try:
+      choice = int(input('> '))
+      if choice == 0:
+        menu()
+      elif choice not in range(1, len(settings)+1):
+        raise IndexError()
+      else:
+        s = [s for s in settings][choice-1]; new = None
+        if isinstance(settings[s], bool):
+          settings[s] = not settings[s]
+        else:
+          while (type(new) is not type(settings[s])) or (s == 'REPLACE_CHAR' and new in INVALID_CHARS):
+            new = input('\nВведите новое значение для {clr}{}{nrm} ({tclr}{type}{nrm})\n> '.format(s, clr=colors['red'], tclr=colors['yellow'], nrm=mods['nrm'], type=type(settings[s])))
+          settings[s] = new
+        settings_save()
+
+      settings_screen()
+    except IndexError as ie:
+      cprint('Выберите одну из доступных настроек', color='red', mode='bold'); sleep(2); clear(); settings_screen()
+    except ValueError as ve:
+      settings_screen()
+    except KeyboardInterrupt as kbi:
+      goodbye()
 
 def menu():
   clear(); logInfo(); print()
@@ -471,18 +538,27 @@ def menu():
 
   for i in range(int(len(actions)/2)):
     print('\x1b[34m[{ind}]\x1b[0m {name}'.format(ind=i+1, name=actions[i*2]))
-  print('\n\x1b[34m[0]\x1b[0m Выход')
+  print('\n\x1b[34m[9]\x1b[0m Настройки')
+  print('\x1b[34m[0]\x1b[0m Выход')
 
   print()
   try:
-    stdin.flush(); choice = int(input('> ')); choice = exit if choice == 0 else actions[(choice-1)*2+1]
+    choice = int(input('> '))
+    if choice == 0:
+      choice = exit
+    elif choice == 9:
+      choice = settings_screen
+    else:
+      choice = actions[(choice-1)*2+1]
+
     if choice is exit:
       goodbye()
     else:
       choice()
       stdout.write('\x1b]0;{}\x07'.format(NAME))
-      print('\n\x1b[32mСохранение успешно завершено :з\x1b[0m')
-      input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
+      if choice is not settings_screen:
+        print('\n\x1b[32mСохранение успешно завершено :з\x1b[0m')
+        input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
       menu()
   except IndexError as ie:
     cprint('Выберите действие из доступных', color='red', mode='bold'); sleep(2); clear(); menu()
