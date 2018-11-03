@@ -13,8 +13,10 @@ from configparser import ConfigParser
 
 import vk_api
 
+from pprint import pprint
+
 NAME = 'VK Dump Tool'
-VERSION = '0.5.1'
+VERSION = '0.5.2'
 API_VERSION = '5.87'
 
 settings = {
@@ -22,12 +24,21 @@ settings = {
   'REPLACE_CHAR': '_' # символ для замены запрещённых в Windows символов
 }
 
+settings_names = {
+  'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
+  'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла'
+}
+
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
+INVALID_POSIX_CHARS = ['$']
 
 ### Dump funcs
 
 def init():
-  global w, h, colors, mods, settings
+  global w, h, colors, mods, settings, INVALID_CHARS
+
+  if osname == 'posix':
+    INVALID_CHARS += INVALID_POSIX_CHARS
 
   config = ConfigParser()
   if not config.read('settings.ini'):
@@ -70,7 +81,7 @@ def settings_save():
 
 def log(*msg):
   clear()
-  global login, vk_session, vk
+  global login, vk_session, vk, account
   cprint(msg[0] if msg else '[для продолжения необходимо войти]', color='red', mod='bold', offset=2, delay=1/50)
   try:
     login = input('  login: \x1b[1;36m'); print('\x1b[0m',end='')
@@ -78,8 +89,11 @@ def log(*msg):
     vk_session = vk_api.VkApi(login, password, app_id=6631721, auth_handler=auth_handler, api_version=API_VERSION)
     vk_session.auth(token_only=True, reauth=True)
     vk = vk_session.get_api()
+    account = vk.account.getProfileInfo()
   except KeyboardInterrupt as kbi:
     goodbye()
+  except vk_api.exceptions.ApiError as ae:
+    log('Произошла ошибка при попытке авторизации.')
   except vk_api.exceptions.BadPassword as vk_bp:
     log('Неправильный пароль.')
   except vk_api.exceptions.Captcha as vk_captch:
@@ -144,7 +158,7 @@ def dump_audio():
   global folder
   import vk_api.audio
 
-  print('\n[получение списка аудио]')
+  print('[получение списка аудио]')
   tracks = vk_api.audio.VkAudio(vk_session).get()
 
   print()
@@ -282,7 +296,8 @@ def dump_messages():
       for at in msg['attachments']:
         tp = at['type']
         if tp == 'photo':
-          r.append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
+          if 'action' not in msg:
+            r.append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
         elif tp == 'video':
           r.append('[видео: vk.com/video{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
         elif tp == 'audio':
@@ -324,6 +339,64 @@ def dump_messages():
           r.append('[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
         else:
           r.append('[вложение с типом "{tp}"]'.format(tp=tp))
+
+    if 'action' in msg and msg['action']:
+      """
+        member - совершающий действие
+        user - объект действия
+      """
+      act = msg['action']
+      tp = act['type']
+
+      if ('member_id' in act) and (act['member_id'] > 0) and (act['member_id'] not in users):
+        try:
+          add_user(vk.users.get(user_ids=act['member_id'])[0])
+        except Exception as e:
+          users[act['member_id']] = {'name': r'{unknown user}', 'length': 3}
+
+      if tp == 'chat_photo_update':
+        r.append('[{member} обновил фотографию беседы ({url})]'.format(
+          member = users[msg['from_id']]['name'],
+          url = msg['attachments'][0]['photo']['sizes'][-1]['url']
+        ))
+      elif tp == 'chat_photo_remove':
+        r.append('[{member} удалил фотографию беседы]'.format(
+          member = users[msg['from_id']]['name']
+        ))
+      elif tp == 'chat_create':
+        r.append('[{member} создал чат "{chat_name}"]'.format(
+          member = users[msg['from_id']]['name'],
+          chat_name = act['text']
+        ))
+      elif tp == 'chat_title_update':
+        r.append('[{member} изменил название беседы на «{chat_name}»]'.format(
+          member = users[msg['from_id']]['name'],
+          chat_name = act['text']
+        ))
+      elif tp == 'chat_invite_user':
+        r.append('[{member} пригласил {user}]'.format(
+          member = users[msg['from_id']]['name'],
+          user = users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
+        ))
+      elif tp == 'chat_kick_user':
+        r.append('[{member} исключил {user}]'.format(
+          member = users[msg['from_id']]['name'],
+          user = users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
+        ))
+      elif tp == 'chat_pin_message':
+        r.append('[{member} закрепил сообщение #{id}: "{message}"]'.format(
+          member = users[msg['from_id']]['name'],
+          id = act['conversation_message_id'],
+          message = act['message'] if 'message' in act else ''
+        ))
+      elif tp == 'chat_unpin_message':
+        r.append('[{member} открепил сообщение]'.format(
+          member = users[msg['from_id']]['name']
+        ))
+      elif tp == 'chat_invite_user_by_link':
+        r.append('[{user} присоединился по ссылке]'.format(
+          user = users[msg['from_id']]['name']
+        ))
 
     return r
 
@@ -470,10 +543,7 @@ def goodbye():
   raise SystemExit
 
 def logInfo():
-  try:
-    account = vk.account.getProfileInfo()
-  except vk_api.exceptions.ApiError as ae:
-    log('Произошла ошибка при попытке авторизации.')
+  global account
 
   log_info = [
     'Login: \x1b[1;36m{}\x1b[0m'.format(login),
@@ -494,7 +564,7 @@ def settings_screen():
 
     i = 0
     for s in settings:
-      print('\x1b[34m[{ind}]\x1b[0m {name}: {value}'.format(ind=i+1, name=s, value=settings[s]))
+      print('\x1b[34m[{ind}]\x1b[0m {name}: {clr}{value}{nrm}'.format(ind=i+1, name=settings_names[s], value=settings[s], clr=colors['yellow'], nrm=mods['nrm']))
       i += 1
 
     print('\n\x1b[34m[0]\x1b[0m В меню')
@@ -538,6 +608,7 @@ def menu():
 
   for i in range(int(len(actions)/2)):
     print('\x1b[34m[{ind}]\x1b[0m {name}'.format(ind=i+1, name=actions[i*2]))
+  print('\n\x1b[34m[8]\x1b[0m Все данные')
   print('\n\x1b[34m[9]\x1b[0m Настройки')
   print('\x1b[34m[0]\x1b[0m Выход')
 
@@ -548,14 +619,18 @@ def menu():
       choice = exit
     elif choice == 9:
       choice = settings_screen
+    elif choice == 8:
+      choice = [actions[i] for i in range(len(actions)) if i % 2 == 1]
     else:
       choice = actions[(choice-1)*2+1]
 
     if choice is exit:
       goodbye()
+    elif isinstance(choice, list):
+      for c in choice:
+        c(); print()
     else:
       choice()
-      stdout.write('\x1b]0;{}\x07'.format(NAME))
       if choice is not settings_screen:
         print('\n\x1b[32mСохранение успешно завершено :з\x1b[0m')
         input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
