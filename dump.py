@@ -4,16 +4,15 @@
 from math import ceil
 from os import get_terminal_size, makedirs, walk, name as osname
 from os.path import exists, join as pjoin
-from sys import stdout, stdin
+from sys import stdout
 from time import sleep
-from urllib.request import urlopen, urlretrieve
+from urllib.request import urlopen
 import itertools
 from multiprocessing import Pool
 from configparser import ConfigParser
 
 import vk_api
 
-from pprint import pprint
 
 NAME = 'VK Dump Tool'
 VERSION = '0.5.2'
@@ -102,7 +101,7 @@ def log(*msg):
     raise e
 
 def auth_handler():
-  stdin.flush(); key = input('Введите код двухфакторой аутентификации: ')
+  key = input('Введите код двухфакторой аутентификации: ')
   remember_device = True
   return key, remember_device
 
@@ -176,10 +175,6 @@ def dump_audio():
     for a in tracks:
       urls.append(a['url'])
       kwargs.append({'name': '{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']), 'ext': 'mp3'})
-      # stdout.write('\x1b]0;{}/{}\x07'.format(i, count))
-      # download(a['url'], folder,
-      #   name='{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']),
-      #   ext='mp3')
 
     with Pool() as pool:
       pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
