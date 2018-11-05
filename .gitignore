@@ -1,6 +1,5 @@
-# Cache & IDEs
+# Cache
 __pycache__
-.vscode
 
 # Dump folder
 dump
