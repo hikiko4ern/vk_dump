@@ -1,2 +1,4 @@
+request>=2.20.0
 vk_api==11.2.1
 bs4==0.0.1
+youtube_dl>=2018.11.3
