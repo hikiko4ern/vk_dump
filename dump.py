@@ -1,38 +1,51 @@
 #!/usr/bin/env python3
+#-*- coding: utf-8 -*-
 
 ### Imports
 import argparse
+from configparser import ConfigParser
+
 from os import get_terminal_size, makedirs, walk, name as osname, sched_getaffinity as os_sched_getaffinity
 from os.path import exists, join as pjoin
 from sys import stdout
 from time import sleep
+
 from urllib.request import urlopen
 import requests
+import shutil
+from re import search as research
+
 import itertools
 from multiprocessing import Pool
-from configparser import ConfigParser
+from multiprocessing.pool import MaybeEncodingError
 
 import vk_api
+from youtube_dl import YoutubeDL
+
 
 
 NAME = 'VK Dump Tool'
-VERSION = '0.5.4'
+VERSION = '0.6'
 API_VERSION = '5.87'
 
 parser = argparse.ArgumentParser(description=NAME)
 parser.add_argument('--token', type=str, dest='TOKEN',
                     help='access_token for auth')
 
+AVAILABLE_THREADS = len(os_sched_getaffinity(0))
+
 settings = {
   'REPLACE_SPACES': False, # заменять пробелы на _
   'REPLACE_CHAR': '_', # символ для замены запрещённых в Windows символов,
-  'POOL_PROCESSES': 4*len(os_sched_getaffinity(0))
+  'POOL_PROCESSES': 4*AVAILABLE_THREADS,
+  'LIMIT_VIDEO_PROCESSES': True
 }
 
 settings_names = {
   'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
   'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
-  'POOL_PROCESSES': 'Количество процессов для мультипоточной загрузке'
+  'POOL_PROCESSES': 'Количество процессов для мультипоточной загрузке',
+  'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео'
 }
 
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
@@ -118,8 +131,15 @@ def auth_handler():
   remember_device = True
   return key, remember_device
 
-def download(url, folder, *args):
-  kwargs = args[0] if (len(args) == 1 and isinstance(args[0], dict)) else {}
+def download(obj, folder, **kwargs):
+  if not obj: pass
+
+  if isinstance(obj, str):
+    url = obj
+    del obj
+  elif isinstance(obj, dict):
+    url = obj.pop('url')
+    kwargs = obj
 
   if 'name' in kwargs:
     fn = '_'.join(kwargs['name'].split(' ')) if settings['REPLACE_SPACES'] else kwargs['name']
@@ -129,25 +149,59 @@ def download(url, folder, *args):
   else:
     fn = url.split('/')[-1]
 
+  if 'prefix' in kwargs:
+    fn = str(kwargs['prefix']) + '_' + fn
+
+  if 'access_key' in kwargs:
+    url = '{}?access_key={ak}'.format(url, ak=kwargs['access_key'])
+
   for c in INVALID_CHARS:
     fn = fn.replace(c, settings['REPLACE_CHAR'])
 
   if not exists(pjoin(folder, fn)):
     try:
-      r = requests.get(url, stream=True)
+      r = requests.get(url, stream=True, timeout=(30, 5))
       with open(pjoin(folder, fn), 'wb') as f:
-        for chunk in r.iter_content(chunk_size=1024):
-          if chunk: # filter out keep-alive new chunks
-            f.write(chunk)
-      # with open(pjoin(folder, fn), 'wb') as bf:
-      #   bf.write(urlopen(url).read())
+          shutil.copyfileobj(r.raw, f)
+        # for chunk in r.iter_content(chunk_size=1024):
+        #   if chunk:
+        #     f.write(chunk)
+    except requests.exceptions.ConnectionError:
+      pass
+    except requests.exceptions.ReadTimeout:
+      pass
     except Exception as e:
       raise e
 
-def download_youtube(url):
+def download_video(v, folder):
+  from pprint import pprint
+  if 'platform' in v:
+    if v['platform'] == 'YouTube':
+      download_youtube(v['player'], folder)
+  else:
+    if not 'player' in v:
+      None
+    if 'height' not in v:
+      v['height'] = 480 if 'photo_800' in v else \
+                    360 if 'photo_320' in v else \
+                    240
+
+    url = v['player'] if not 'access_key' in v else '{}?access_key={ak}'.format(v['player'], at=v['access_key'])
+    data = urlopen(v['player']).read()
+    try:
+      download(
+        research(b'https://cs.*vkuservideo.*'+str(min(v['height'], v['width'])).encode()+b'.mp4', data).group(0).decode(),
+        folder,
+        name = v['title']+'_'+str(v['id']), # во избежание конфликта имён к имени файла добавляется его ID
+        ext = 'mp4'
+      )
+
+    except AttributeError:
+      pass
+
+def download_youtube(url, folder):
   if not url: pass
 
-  from youtube_dl import YoutubeDL
   YoutubeDL({
     'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
     'nooverwrites': True,
@@ -177,39 +231,14 @@ def dump_photos():
     if photos['count'] == 0:
       print('    0/0')
     else:
-      urls = []
+      objs = []
       for p in photos['items']:
-        urls.append(p['sizes'][-1]['url'])
+        objs.append(p['sizes'][-1]['url'])
+
+      print('    .../{}'.format(photos['count']), end='\r')
       with Pool(settings['POOL_PROCESSES']) as pool:
-        pool.starmap(download, zip(urls, itertools.repeat(folder)))
-      print('    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
-
-
-
-def dump_liked_photos():
-  folder = pjoin('dump', 'photos', 'Понравившиеся')
-  makedirs(folder, exist_ok=True)
-
-  print('[получение списка фото]')
-
-  photos = vk_tools.get_all(
-    method = 'fave.getPhotos',
-    max_count = 1000,
-    values = {
-      'photo_sizes': 1
-  })
-
-  print('\nСохранение понравившихся фото:')
-
-  if photos['count'] == 0:
-    print('  0/0')
-  else:
-    urls = []
-    for p in photos['items']:
-      urls.append(p['sizes'][-1]['url'])
-    with Pool(settings['POOL_PROCESSES']) as pool:
-      pool.starmap(download, zip(urls, itertools.repeat(folder)))
-    print('  {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
+        pool.starmap(download, zip(objs, itertools.repeat(folder)))
+      print('\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
 
 
 
@@ -227,21 +256,22 @@ def dump_audio():
   if len(tracks) == 0:
     print('  0/0')
   else:
-    urls = []
-    kwargs = []
+    audios = []
     for a in tracks:
-      urls.append(a['url'])
-      kwargs.append({'name': '{artist} - {title}'.format(artist=a['artist'], title=a['title'], id=a['id']), 'ext': 'mp3'})
+      audios.append({
+        'url': a['url'],
+        'name': '{artist} - {title}_{id}'.format(artist=a['artist'], title=a['title'], id=a['id']), # во избежание конфликта имён к имени файла добавляется его ID
+        'ext': 'mp3'
+      })
 
+    print('  .../{}'.format(len(tracks)), end='\r')
     with Pool(settings['POOL_PROCESSES']) as pool:
-      pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
-    print('  {}/{}'.format(len(next(walk(folder))[2]), len(tracks)))
+      pool.starmap(download, zip(audios, itertools.repeat(folder)))
+    print('\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), len(tracks)))
 
 
 
 def dump_video():
-  from re import search as research
-
   folder = pjoin('dump', 'video')
   makedirs(folder, exist_ok=True)
 
@@ -268,88 +298,14 @@ def dump_video():
     if video['count'] == 0:
       print('    0/0')
     else:
-      urls = []
-      kwargs = []
+      objs = []
       for v in video['items']:
-        urls.append(research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', urlopen(v['player']).read()).group(0).decode())
-        kwargs.append({'name': v['title']+'_'+str(v['id']), 'ext': 'mp4'}) # во избежание конфликта имён к имени файла добавляется его ID
-      with Pool(settings['POOL_PROCESSES']) as pool:
-        pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
-      print('    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
+        objs.append(v)
 
-
-
-def dump_liked_video():
-  from re import search as research
-
-  folder = pjoin('dump', 'video', 'Понравившиеся')
-  makedirs(folder, exist_ok=True)
-
-  print('[получение списка видео]')
-
-  video = vk_tools.get_all(
-    method = 'fave.getVideos',
-    max_count = 1000,
-    values = {
-      'extended': 1
-  })
-
-  print('\nСохранение видео:')
-
-  not_supported = 0
-  unsupported_platforms = []
-  permission_errors = 0
-
-  youtube_urls = []
-
-  if video['count'] == 0:
-    print('  0/0')
-  else:
-    urls = []
-    kwargs = []
-    for v in video['items']:
-      if 'platform' in v:
-        if v['platform'] == 'YouTube':
-          youtube_urls.append(v['player'])
-        else:
-          if v['platform'] not in unsupported_platforms:
-            unsupported_platforms.append(v['platform'])
-          not_supported += 1
-          continue
-      else:
-        if 'height' not in v:
-          v['height'] = 480 if 'photo_800' in v else \
-                        360 if 'photo_320' in v else \
-                        240
-
-        data = urlopen(v['player']).read()
-        try:
-          urls.append(research(b'https://cs.*vkuservideo.*'+str(v['height']).encode()+b'.mp4', data).group(0).decode())
-          kwargs.append({'name': v['title']+'_'+str(v['id']), 'ext': 'mp4'}) # во избежание конфликта имён к имени файла добавляется его ID
-        except AttributeError:
-          if research(b'video_ext_msg', data):
-            permission_errors += 1
-
-    if youtube_urls:
-      print('  [YouTube]')
-      try:
-        with Pool(len(os_sched_getaffinity(0))) as pool:
-          pool.map(download_youtube, youtube_urls)
-      except Exception:
-        None
-      # print('  Сохранение YouTube видео завершено ({}/{})'.format(len(next(walk(folder))[2]), len(youtube_urls)))
-
-    if urls:
-      print('  [VK]')
-      with Pool(len(os_sched_getaffinity(0))) as pool:
-        pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
-      # print('Сохранение видео из VK завершено')
-
-    print('  {}/{}'.format(len(next(walk(folder))[2]), video['count']))
-    if not_supported > 0:
-      print('{clr}Видео с неподдерживаемых платформ: {}{nrm} ({})'.format(not_supported, ', '.join(unsupported_platforms), clr=colors['red'], nrm=mods['nrm']))
-    if permission_errors > 0:
-      print('{clr}Скрыто настройками приватности: {}/{}{nrm}'.format(permission_errors, len(urls), clr=colors['red'], nrm=mods['nrm']))
+      print('    .../{}'.format(video['count']), end='\r')
+      with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
+        pool.starmap(download_video, zip(objs, itertools.repeat(folder)))
+      print('\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
 
 
 
@@ -366,14 +322,18 @@ def dump_docs():
   if docs['count'] == 0:
     print('  0/0')
   else:
-    urls = []
-    kwargs = []
+    objs = []
     for d in docs['items']:
-      urls.append(d['url'])
-      kwargs.append({'name': d['title']+'_'+str(d['id']), 'ext': d['ext']}) # во избежание конфликта имён к имени файла добавляется его ID
+      objs.append({
+        'url': d['url'],
+        'name': d['title']+'_'+str(d['id']), # во избежание конфликта имён к имени файла добавляется его ID
+        'ext': d['ext']
+      })
+
+    print('  .../{}'.format(docs['count']), end='\r')
     with Pool(settings['POOL_PROCESSES']) as pool:
-      pool.starmap(download, zip(urls, itertools.repeat(folder), kwargs))
-    print('  {}/{}'.format(len(next(walk(folder))[2]), docs['count']))
+      pool.starmap(download, zip(objs, itertools.repeat(folder)))
+    print('\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), docs['count']))
 
 
 
@@ -622,6 +582,93 @@ def dump_messages():
 
 
 
+def dump_liked_posts(**kwargs):
+  folder_photos = pjoin('dump', 'photos', 'Понравившиеся'); makedirs(folder_photos, exist_ok=True)
+  folder_videos = pjoin('dump', 'video', 'Понравившиеся'); makedirs(folder_videos, exist_ok=True)
+  folder_docs = pjoin('dump', 'docs', 'Понравившиеся'); makedirs(folder_docs, exist_ok=True)
+
+  print('[получение постов]')
+
+  posts = vk.execute.posts(basic_offset=0)
+  i = 0
+  for i in range(posts[0]//1000):
+    res = vk.execute.posts(basic_offset=(i+1)*1000)
+    posts[1].extend(res[1])
+    del res
+
+  filtered_posts = []
+  for i in range(len(posts[1])):
+    for p in posts[1][i]:
+      filtered_posts.append(p)
+  posts = filtered_posts
+  del filtered_posts
+
+  photos = []
+  video_ids = []
+  videos = []
+  docs = []
+
+  for p in posts:
+    if 'attachments' in p:
+      for at in p['attachments']:
+        if at['type'] == 'photo':
+          obj = {
+            'url': at['photo']['sizes'][-1]['url'],
+            'prefix': '{}_{}'.format(p['owner_id'], p['id']) }
+          if 'access_key' in at['photo']: obj.update({'access_key': at['photo']['access_key']})
+          photos.append(obj)
+        elif at['type'] == 'video':
+          video_ids.append('{oid}_{id}{access_key}'.format(
+            oid = at['video']['owner_id'],
+            id = at['video']['id'],
+            access_key = '_'+at['video']['access_key'] if 'access_key' in at['video'] else ''
+          ))
+        elif at['type'] == 'doc':
+          obj = {
+            'url': at['doc']['url'],
+            'prefix': '{}_{}'.format(p['owner_id'], p['id']),
+            'name': at['doc']['title'] + '_' + str(at['doc']['id']),
+            'ext': at['doc']['ext'] }
+          if 'access_key' in at['doc']: obj.update({'access_key': at['doc']['access_key']})
+          docs.append(obj)
+
+  if video_ids:
+    videos = vk_tools.get_all(
+      method = 'video.get',
+      max_count = 200,
+      values = {
+        'videos': ','.join(video_ids),
+        'extended': 1
+      }
+    )
+
+  print('Сохранение ({} вложений из {} постов):'.format(sum([len(photos), len(videos), len(docs)]), len(posts)))
+
+  try:
+    if photos:
+      print('  [фото ({})]'.format(len(photos)))
+      with Pool(settings['POOL_PROCESSES']) as pool:
+        pool.starmap(download, zip(photos, itertools.repeat(folder_photos)))
+  except MaybeEncodingError:
+    None
+
+  try:
+    if videos:
+      print('  [видео ({}/{})]'.format(len(videos['items']), len(video_ids)))
+      with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
+        pool.starmap(download_video, zip(videos['items'], itertools.repeat(folder_videos)))
+  except MaybeEncodingError:
+    None
+
+  try:
+    if docs:
+      print('  [документы ({})]'.format(len(docs)))
+      with Pool(settings['POOL_PROCESSES']) as pool:
+        pool.starmap(download, zip(docs, itertools.repeat(folder_docs)))
+  except MaybeEncodingError:
+    None
+
+
 ### GUI funcs
 
 clear = lambda: print('\x1b[2J', '\x1b[1;1H', end='', flush=True)
@@ -693,12 +740,11 @@ def menu():
 
   actions = [
     'Фото (по альбомам)', dump_photos,
-    'Фото (лайки)', dump_liked_photos,
     'Аудио', dump_audio,
     'Видео (по альбомам)', dump_video,
-    'Видео (лайки)', dump_liked_video,
     'Документы', dump_docs,
-    'Сообщения', dump_messages
+    'Сообщения', dump_messages,
+    'Данные понравившихся постов', dump_liked_posts
   ]
 
   if args.TOKEN:
