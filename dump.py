@@ -5,7 +5,7 @@
 import argparse
 from configparser import ConfigParser
 
-from os import get_terminal_size, makedirs, walk, name as osname, sched_getaffinity as os_sched_getaffinity
+from os import sched_getaffinity as os_sched_getaffinity, name as osname, get_terminal_size, makedirs, remove, walk
 from os.path import exists, join as pjoin
 from sys import stdout
 from time import sleep
@@ -20,6 +20,8 @@ from multiprocessing import Pool
 from multiprocessing.pool import MaybeEncodingError
 
 import vk_api
+from jconfig.jconfig import Config
+from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 
@@ -34,6 +36,7 @@ parser.add_argument('--token', type=str, dest='TOKEN',
 AVAILABLE_THREADS = len(os_sched_getaffinity(0))
 
 settings = {
+    'MEMORY_CONFIG': True,
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
     'POOL_PROCESSES': 4*AVAILABLE_THREADS,
@@ -41,6 +44,7 @@ settings = {
 }
 
 settings_names = {
+    'MEMORY_CONFIG': 'Сохранять конфиг vk_api в памяти вместо записи в файл',
     'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
     'POOL_PROCESSES': 'Количество процессов для мультипоточной загрузке',
@@ -97,9 +101,14 @@ def settings_save():
     global settings
 
     config = ConfigParser()
+
     with open('settings.ini', 'w') as cf:
         config['SETTINGS'] = settings
         config.write(cf)
+
+    if settings['MEMORY_CONFIG']:
+        if exists('vk_config.v2.json'):
+            remove('vk_config.v2.json')
 
 
 def log(*msg):
@@ -116,8 +125,11 @@ def log(*msg):
             print('\x1b[0m', end='')
             password = input('    password: \x1b[1;36m')
             print('\x1b[0m', end='')
-            vk_session = vk_api.VkApi(login, password, app_id=6631721,
-                                      auth_handler=auth_handler, api_version=API_VERSION)
+            vk_session = vk_api.VkApi(login, password,
+                                      config=(MemoryConfig if settings['MEMORY_CONFIG'] else Config),
+                                      app_id=6631721,
+                                      auth_handler=auth_handler,
+                                      api_version=API_VERSION)
             vk_session.auth(token_only=True, reauth=True)
         vk = vk_session.get_api()
         vk_tools = vk_api.VkTools(vk)
