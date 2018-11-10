@@ -10,6 +10,7 @@ from os.path import exists, join as pjoin
 from sys import stdout
 from time import sleep
 
+import urllib3
 from urllib.request import urlopen
 import requests
 import shutil
@@ -207,6 +208,8 @@ def download(obj, folder, **kwargs):
         except requests.exceptions.ConnectionError:
             return False
         except requests.exceptions.ReadTimeout:
+            return False
+        except urllib3.exceptions.ReadTimeoutError:
             return False
         except Exception as e:
             raise e
