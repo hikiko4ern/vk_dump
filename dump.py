@@ -35,12 +35,12 @@ parser.add_argument('--token', type=str, dest='TOKEN',
 AVAILABLE_THREADS = cpu_count()
 
 settings = {
-    'MEMORY_CONFIG': True,
+    'MEMORY_CONFIG': True,  # сохранять конфиг в память вместо файла
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
-    'POOL_PROCESSES': 4*AVAILABLE_THREADS,
-    'LIMIT_VIDEO_PROCESSES': True,
-    'SAVE_DIALOG_ATTACHMENTS': True
+    'POOL_PROCESSES': 4*AVAILABLE_THREADS,  # макс. число создаваемых процессов
+    'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
+    'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
 }
 
 settings_names = {
@@ -55,12 +55,10 @@ settings_names = {
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 INVALID_POSIX_CHARS = ['$']
 
-AE_AVAILABLE = None
-
 
 # Dump funcs
 def init():
-    global parser, args, w, h, colors, mods, settings, AE_AVAILABLE, INVALID_CHARS
+    global parser, args, w, h, colors, mods, settings, ANSI_AVAILABLE, INVALID_CHARS
 
     args = parser.parse_args()
 
@@ -69,14 +67,14 @@ def init():
         if int(platform().split('-')[1]) < 10:
             import colorama
             colorama.init()
-            AE_AVAILABLE = False
+            ANSI_AVAILABLE = False
         else:
             from subprocess import call
             call('', shell=True)
-            AE_AVAILABLE = True
+            ANSI_AVAILABLE = True
     elif osname == 'posix':
         INVALID_CHARS += INVALID_POSIX_CHARS
-        AE_AVAILABLE = True
+        ANSI_AVAILABLE = True
 
     config = ConfigParser()
     if not config.read('settings.ini'):
@@ -98,7 +96,7 @@ def init():
         'red': '\x1b[31m',
         'green': '\x1b[32m',
         'yellow': '\x1b[33m',
-        'blue': '\x1b[34m',
+        'blue': '\x1b[34m' if ANSI_AVAILABLE else '\x1b[36m',
         'purple': '\x1b[35m',
         'cyan': '\x1b[36m',
         'white': '\x1b[37m',
@@ -134,9 +132,10 @@ def log(*msg):
             vk_session = vk_api.VkApi(token=args.TOKEN, app_id=6631721,
                                       auth_handler=auth_handler, api_version=API_VERSION)
         else:
-            login = input('    login: {clr}'.format(clr=colors['cyan']))
+            login = input('    login: {clr}'.format(clr=colors['cyan'] if ANSI_AVAILABLE else ''))
             print(mods['nc'], end='')
-            password = input('    password: {clr}'.format(clr=colors['cyan']))
+            password = input('    password: {clr}'.format(
+                clr=colors['cyan'] if ANSI_AVAILABLE else ''))
             print(mods['nc'], end='')
             vk_session = vk_api.VkApi(login, password,
                                       config=(
@@ -838,7 +837,7 @@ def clear(): return print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
 
 def lprint(*args, **kwargs):
-    AE_AVAILABLE and print('\x1b[?25l')
+    print('\x1b[?25l' if ANSI_AVAILABLE else '')
     for s in args:
         if (s.find('\x1b') == -1) and ('slow' in kwargs) and (kwargs['slow']):
             for ch in s:
@@ -847,18 +846,20 @@ def lprint(*args, **kwargs):
                 sleep(kwargs['delay'] if 'delay' in kwargs else 1/50)
         else:
             print(s, end='')
-    AE_AVAILABLE and print('\x1b[?25h')
+    print('\x1b[?25h' if ANSI_AVAILABLE else '')
 
 
 def cprint(msg, **kwargs):
     if isinstance(msg, list):
         for i in range(len(msg)):
+            if not 'offset' in kwargs:
+                kwargs['offset'] = 0
             kwargs['color'][i] = colors[kwargs['color'][i]] if (
                 'color' in kwargs and kwargs['color'][i]) else mods['nc']
             if 'mod' in kwargs and kwargs['mod'][i]:
                 kwargs['color'][i] += mods[kwargs['mod'][i]]
             lprint(kwargs['color'][i]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i])/2),
-                                                             y=int(h/2-len(msg)/2+i)+1),
+                                                             y=int(h/2-len(msg)/2+i)+1-kwargs['offset']),
                    msg[i], mods['nc'], **kwargs)
 
     else:
@@ -874,23 +875,23 @@ def cprint(msg, **kwargs):
 
 
 def welcome():
-    AE_AVAILABLE and stdout.write('\x1b]0;{}\x07'.format(NAME))
+    ANSI_AVAILABLE and stdout.write('\x1b]0;{}\x07'.format(NAME))
     clear()
     cprint([NAME, 'v'+VERSION],
            color=['green', None],
            mod=['bold', None],
            slow=True, delay=1/50)
 
-    AE_AVAILABLE and print('\x1b[?25l')
+    print('\x1b[?25l' if ANSI_AVAILABLE else '')
     sleep(2)
-    AE_AVAILABLE and print('\x1b[?25h')
+    print('\x1b[?25h' if ANSI_AVAILABLE else '')
 
 
 def goodbye():
     clear()
     cprint(['Спасибо за использование скрипта :з', '', 'Made with ♥ by hikiko4ern'],
-           color=['green', None, 'red'], mod=['bold', None, 'bold'])
-    AE_AVAILABLE and print('\x1b[?25h')
+           color=['green', None, 'red'], mod=['bold', None, 'bold'], offset=-1)
+    ANSI_AVAILABLE and print('\x1b[?25h')
     raise SystemExit
 
 
@@ -1002,7 +1003,7 @@ def settings_screen():
             ind=i+1,
             name=settings_names[s],
             value=value,
-            ind_clr=colors['cyan'],
+            ind_clr=colors['blue'],
             clr=color if 'color' in locals() else colors['yellow'],
             nc=mods['nc']
         ))
@@ -1011,7 +1012,7 @@ def settings_screen():
         if 'color' in locals():
             del color
 
-    print('\n{clr}[0]{nc} В меню'.format(clr=colors['cyan'], nc=mods['nc']))
+    print('\n{clr}[0]{nc} В меню'.format(clr=colors['blue'], nc=mods['nc']))
 
     try:
         choice = int(input('> '))
