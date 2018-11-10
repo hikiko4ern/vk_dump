@@ -5,7 +5,7 @@
 import argparse
 from configparser import ConfigParser
 
-from os import get_terminal_size, makedirs, walk, name as osname, sched_getaffinity as os_sched_getaffinity
+from os import cpu_count, name as osname, get_terminal_size, makedirs, remove, walk
 from os.path import exists, join as pjoin
 from sys import stdout
 from time import sleep
@@ -20,46 +20,63 @@ from multiprocessing import Pool
 from multiprocessing.pool import MaybeEncodingError
 
 import vk_api
+from jconfig.jconfig import Config
+from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
-
 NAME = 'VK Dump Tool'
-VERSION = '0.6'
+VERSION = '0.7'
 API_VERSION = '5.87'
 
 parser = argparse.ArgumentParser(description=NAME)
 parser.add_argument('--token', type=str, dest='TOKEN',
                     help='access_token for auth')
 
-AVAILABLE_THREADS = len(os_sched_getaffinity(0))
+AVAILABLE_THREADS = cpu_count()
 
 settings = {
+    'MEMORY_CONFIG': True,
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
     'POOL_PROCESSES': 4*AVAILABLE_THREADS,
-    'LIMIT_VIDEO_PROCESSES': True
+    'LIMIT_VIDEO_PROCESSES': True,
+    'SAVE_DIALOG_ATTACHMENTS': True
 }
 
 settings_names = {
+    'MEMORY_CONFIG': 'Сохранять конфиг vk_api в памяти вместо записи в файл',
     'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
     'POOL_PROCESSES': 'Количество процессов для мультипоточной загрузке',
-    'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео'
+    'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео',
+    'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов'
 }
 
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 INVALID_POSIX_CHARS = ['$']
 
+AE_AVAILABLE = None
+
+
 # Dump funcs
-
-
 def init():
-    global parser, args, w, h, colors, mods, settings, INVALID_CHARS
+    global parser, args, w, h, colors, mods, settings, AE_AVAILABLE, INVALID_CHARS
 
     args = parser.parse_args()
 
-    if osname == 'posix':
+    if osname == 'nt':
+        from platform import platform
+        if int(platform().split('-')[1]) < 10:
+            import colorama
+            colorama.init()
+            AE_AVAILABLE = False
+        else:
+            from subprocess import call
+            call('', shell=True)
+            AE_AVAILABLE = True
+    elif osname == 'posix':
         INVALID_CHARS += INVALID_POSIX_CHARS
+        AE_AVAILABLE = True
 
     config = ConfigParser()
     if not config.read('settings.ini'):
@@ -87,7 +104,7 @@ def init():
         'white': '\x1b[37m',
     }
     mods = {
-        'nrm': '\x1b[0m',
+        'nc': '\x1b[0m',
         'bold': '\x1b[1m'
     }
     makedirs('dump', exist_ok=True)
@@ -97,9 +114,14 @@ def settings_save():
     global settings
 
     config = ConfigParser()
+
     with open('settings.ini', 'w') as cf:
         config['SETTINGS'] = settings
         config.write(cf)
+
+    if settings['MEMORY_CONFIG']:
+        if exists('vk_config.v2.json'):
+            remove('vk_config.v2.json')
 
 
 def log(*msg):
@@ -112,12 +134,17 @@ def log(*msg):
             vk_session = vk_api.VkApi(token=args.TOKEN, app_id=6631721,
                                       auth_handler=auth_handler, api_version=API_VERSION)
         else:
-            login = input('    login: \x1b[1;36m')
-            print('\x1b[0m', end='')
-            password = input('    password: \x1b[1;36m')
-            print('\x1b[0m', end='')
-            vk_session = vk_api.VkApi(login, password, app_id=6631721,
-                                      auth_handler=auth_handler, api_version=API_VERSION)
+            login = input('    login: {clr}'.format(clr=colors['cyan']))
+            print(mods['nc'], end='')
+            password = input('    password: {clr}'.format(clr=colors['cyan']))
+            print(mods['nc'], end='')
+            vk_session = vk_api.VkApi(login, password,
+                                      config=(
+                                          MemoryConfig if settings['MEMORY_CONFIG'] else Config),
+                                      app_id=6631721,
+                                      api_version=API_VERSION,
+                                      auth_handler=auth_handler,
+                                      captcha_handler=captcha_handler)
             vk_session.auth(token_only=True, reauth=True)
         vk = vk_session.get_api()
         vk_tools = vk_api.VkTools(vk)
@@ -130,7 +157,7 @@ def log(*msg):
         log('Неправильный пароль.')
     except vk_api.exceptions.Captcha:
         log('Необходим ввод капчи.')
-    except Exception:
+    except Exception as e:
         raise e
 
 
@@ -140,9 +167,14 @@ def auth_handler():
     return key, remember_device
 
 
+def captcha_handler(captcha):
+    key = input('Введите капчу ({}): '.format(captcha.get_url())).strip()
+    return captcha.try_again(key)
+
+
 def download(obj, folder, **kwargs):
     if not obj:
-        pass
+        return False
 
     if isinstance(obj, str):
         url = obj
@@ -173,25 +205,21 @@ def download(obj, folder, **kwargs):
             r = requests.get(url, stream=True, timeout=(30, 5))
             with open(pjoin(folder, fn), 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
-                # for chunk in r.iter_content(chunk_size=1024):
-                #     if chunk:
-                #         f.write(chunk)
         except requests.exceptions.ConnectionError:
-            pass
+            return False
         except requests.exceptions.ReadTimeout:
-            pass
+            return False
         except Exception as e:
             raise e
 
 
 def download_video(v, folder):
-    from pprint import pprint
     if 'platform' in v:
         if v['platform'] == 'YouTube':
-            download_youtube(v['player'], folder)
+            return download_youtube(v['player'], folder)
     else:
         if not 'player' in v:
-            None
+            return False
         if 'height' not in v:
             v['height'] = 480 if 'photo_800' in v else \
                 360 if 'photo_320' in v else \
@@ -199,24 +227,22 @@ def download_video(v, folder):
 
         url = v['player'] if not 'access_key' in v else '{}?access_key={ak}'.format(
             v['player'], at=v['access_key'])
-        data = urlopen(v['player']).read()
+        data = urlopen(url).read()
         try:
             download(
                 research(b'https://cs.*vkuservideo.*' +
-                         str(min(v['height'], v['width'])).encode()+b'.mp4', data).group(0).decode(),
+                         str(min(v['height'], v['width']) if 'width' in v else v['height']).encode()+b'.mp4', data).group(0).decode(),
                 folder,
-                # во избежание конфликта имён к имени файла добавляется его ID
                 name=v['title']+'_'+str(v['id']),
                 ext='mp4'
             )
-
         except AttributeError:
-            pass
+            return False
 
 
 def download_youtube(url, folder):
     if not url:
-        pass
+        return False
 
     YoutubeDL({
         'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
@@ -277,7 +303,6 @@ def dump_audio():
         for a in tracks:
             audios.append({
                 'url': a['url'],
-                # во избежание конфликта имён к имени файла добавляется его ID
                 'name': '{artist} - {title}_{id}'.format(artist=a['artist'], title=a['title'], id=a['id']),
                 'ext': 'mp3'
             })
@@ -343,7 +368,6 @@ def dump_docs():
         for d in docs['items']:
             objs.append({
                 'url': d['url'],
-                # во избежание конфликта имён к имени файла добавляется его ID
                 'name': d['title']+'_'+str(d['id']),
                 'ext': d['ext']
             })
@@ -379,7 +403,15 @@ def dump_messages():
     def message_handler(msg):
         """
             Обработчик сообщений.
-            Возвращает массив строк.
+            Возвращает объект
+                {
+                    "messages": [...],
+                    "attachments": {
+                        "photos": [...],
+                        "video_ids": [...],
+                        "docs": [...]
+                    }
+                }
 
             [документация API]
                 [вложения]
@@ -388,44 +420,64 @@ def dump_messages():
                     [wall_reply]
                         - vk.com/dev/objects/attachments_w
         """
-        r = []
+        r = {
+            'messages': [],
+            'attachments': {
+                'photos': [],
+                'video_ids': [],
+                'docs': []
+            }
+        }
 
         if ('fwd_messages' in msg) and msg['fwd_messages']:
             for fwd in msg['fwd_messages']:
                 res = message_handler(fwd)
-                if len(res) > 0:
+                if len(res['messages']) > 0:
                     if fwd['from_id'] not in users:
                         users_add(fwd['from_id'])
 
-                    r.append('{name}> {}'.format(res[0], name=users.get(fwd['from_id'])['name']))
-                    for m in res[1:]:
-                        r.append('{name}> {}'.format(
+                    r['messages'].append('{name}> {}'.format(
+                        res['messages'][0], name=users.get(fwd['from_id'])['name']))
+                    for m in res['messages'][1:]:
+                        r['messages'].append('{name}> {}'.format(
                             m, name=' '*len(users.get(fwd['from_id'])['name'])))
 
         if len(msg['text']) > 0:
             for line in msg['text'].split('\n'):
-                r.append(line)
+                r['messages'].append(line)
 
         if msg['attachments']:
             for at in msg['attachments']:
                 tp = at['type']
                 if tp == 'photo':
                     if 'action' not in msg:
-                        r.append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
+                        r['messages'].append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
+                        r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
                 elif tp == 'video':
-                    r.append(
+                    r['messages'].append(
                         '[видео: vk.com/video{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
+                    r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
+                        oid=at[tp]['owner_id'],
+                        id=at[tp]['id'],
+                        access_key='_' +
+                        at[tp]['access_key'] if 'access_key' in at[tp] else ''
+                    ))
                 elif tp == 'audio':
-                    r.append('[аудио: {artist} - {title}]'.format(artist=at[tp]
-                                                                  ['artist'], title=at[tp]['title']))
+                    r['messages'].append('[аудио: {artist} - {title}]'.format(artist=at[tp]
+                                                                              ['artist'], title=at[tp]['title']))
                 elif tp == 'doc':
-                    r.append(
+                    r['messages'].append(
                         '[документ: vk.com/doc{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
+                    r['attachments']['docs'].append({
+                        'url': at[tp]['url'],
+                        'name': at[tp]['title']+'_'+str(at[tp]['id']),
+                        'ext': at[tp]['ext']
+                    })
                 elif tp == 'link':
-                    r.append('[ссылка: {title} ({url})]'.format(
+                    r['messages'].append('[ссылка: {title} ({url})]'.format(
                         title=at[tp]['title'], url=at[tp]['url']))
                 elif tp == 'market':
-                    r.append('[товар: {title} ({price}{cur}) [vk.com/market?w=product{owid}_{id}]]'.format(
+                    r['messages'].append('[товар: {title} ({price}{cur}) [vk.com/market?w=product{owid}_{id}]]'.format(
                         title=at[tp]['title'],
                         owid=at[tp]['owner_id'],
                         id=at[tp]['id'],
@@ -433,31 +485,33 @@ def dump_messages():
                         cur=at[tp]['price']['currency']['name'].lower()))
                 # TODO: доделать market_album
                 elif tp == 'market_album':
-                    r.append('[коллекция товаров: {title}]'.format(title=at[tp]['title']))
+                    r['messages'].append(
+                        '[коллекция товаров: {title}]'.format(title=at[tp]['title']))
                 elif tp == 'wall':
-                    r.append(
+                    r['messages'].append(
                         '[пост: vk.com/wall{owid}_{id}]'.format(owid=at[tp]['to_id'], id=at[tp]['id']))
                 # TODO: доделать wall_reply: добавить поддержку вложений (а надо ли?)
                 elif tp == 'wall_reply':
                     if at[tp]['from_id'] not in users:
                         users_add(at[tp]['from_id'])
                     u = users.get(at[tp]['from_id'])
-                    r.append('[комментарий к посту от {user}: {text} (vk.com/wall{owid}_{pid}?reply={id})]'.format(
+                    r['messages'].append('[комментарий к посту от {user}: {text} (vk.com/wall{owid}_{pid}?reply={id})]'.format(
                         user=u['name'],
                         text=at[tp]['text'],
                         owid=at[tp]['owner_id'],
                         pid=at[tp]['post_id'],
                         id=at[tp]['id']))
                 elif tp == 'sticker':
-                    r.append('[стикер: {url}]'.format(url=at[tp]['images'][-1]['url']))
+                    r['messages'].append('[стикер: {url}]'.format(url=at[tp]['images'][-1]['url']))
                 elif tp == 'gift':
-                    r.append('[подарок: {id}]'.format(id=at[tp]['id']))
+                    r['messages'].append('[подарок: {id}]'.format(id=at[tp]['id']))
                 elif tp == 'graffiti':
-                    r.append('[граффити: {url}]'.format(url=at[tp]['url']))
+                    r['messages'].append('[граффити: {url}]'.format(url=at[tp]['url']))
                 elif tp == 'audio_message':
-                    r.append('[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
+                    r['messages'].append(
+                        '[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
                 else:
-                    r.append('[вложение с типом "{tp}"]'.format(tp=tp))
+                    r['messages'].append('[вложение с типом "{tp}"]'.format(tp=tp))
 
         if 'action' in msg and msg['action']:
             """
@@ -474,46 +528,49 @@ def dump_messages():
                     users[act['member_id']] = {'name': r'{unknown user}', 'length': 3}
 
             if tp == 'chat_photo_update':
-                r.append('[{member} обновил фотографию беседы ({url})]'.format(
+                r['messages'].append('[{member} обновил фотографию беседы ({url})]'.format(
                     member=users[msg['from_id']]['name'],
                     url=msg['attachments'][0]['photo']['sizes'][-1]['url']
                 ))
+                r['attachments']['photos'].append(
+                    msg['attachments'][0]['photo']['sizes'][-1]['url'])
             elif tp == 'chat_photo_remove':
-                r.append('[{member} удалил фотографию беседы]'.format(
+                r['messages'].append('[{member} удалил фотографию беседы]'.format(
                     member=users[msg['from_id']]['name']
                 ))
             elif tp == 'chat_create':
-                r.append('[{member} создал чат "{chat_name}"]'.format(
+                r['messages'].append('[{member} создал чат "{chat_name}"]'.format(
                     member=users[msg['from_id']]['name'],
                     chat_name=act['text']
                 ))
             elif tp == 'chat_title_update':
-                r.append('[{member} изменил название беседы на «{chat_name}»]'.format(
+                r['messages'].append('[{member} изменил название беседы на «{chat_name}»]'.format(
                     member=users[msg['from_id']]['name'],
                     chat_name=act['text']
                 ))
             elif tp == 'chat_invite_user':
-                r.append('[{member} пригласил {user}]'.format(
+                r['messages'].append('[{member} пригласил {user}]'.format(
                     member=users[msg['from_id']]['name'],
                     user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
                 ))
             elif tp == 'chat_kick_user':
-                r.append('[{member} исключил {user}]'.format(
+                r['messages'].append('[{member} исключил {user}]'.format(
                     member=users[msg['from_id']]['name'],
                     user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
                 ))
+            # TODO: полная обработка закреплённого сообщения
             elif tp == 'chat_pin_message':
-                r.append('[{member} закрепил сообщение #{id}: "{message}"]'.format(
+                r['messages'].append('[{member} закрепил сообщение #{id}: "{message}"]'.format(
                     member=users[msg['from_id']]['name'],
                     id=act['conversation_message_id'],
                     message=act['message'] if 'message' in act else ''
                 ))
             elif tp == 'chat_unpin_message':
-                r.append('[{member} открепил сообщение]'.format(
+                r['messages'].append('[{member} открепил сообщение]'.format(
                     member=users[msg['from_id']]['name']
                 ))
             elif tp == 'chat_invite_user_by_link':
-                r.append('[{user} присоединился по ссылке]'.format(
+                r['messages'].append('[{user} присоединился по ссылке]'.format(
                     user=users[msg['from_id']]['name']
                 ))
 
@@ -522,7 +579,6 @@ def dump_messages():
     folder = pjoin('dump', 'dialogs')
     makedirs(folder, exist_ok=True)
 
-    # get conversations
     print('[получение диалогов...]')
     print('\x1b[2K  0/???', end='\r')
 
@@ -570,15 +626,21 @@ def dump_messages():
             })
         print('\x1b[2K      {}/{}'.format(len(history['items']), history['count']))
 
-        # write history to .txt file
         for c in INVALID_CHARS:
             dialog_name = dialog_name.replace(c, settings['REPLACE_CHAR'])
 
+        attachments = {
+            'photos': [],
+            'video_ids': [],
+            'docs': []
+        }
+
         with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
             count = len(history['items'])
-            print('    [сохранение]')
+            print('    [сохранение сообщений]')
             print('\x1b[2K      {}/{}'.format(0, count), end='\r')
             prev = None
+
             for i in range(count):
                 m = history['items'][i]
 
@@ -590,16 +652,88 @@ def dump_messages():
                     m['from_id'])['name']+': '
 
                 res = message_handler(m)
-                if res:
-                    msg += res[0] + '\n'
-                    for r in res[1:]:
+                if res['messages']:
+                    msg += res['messages'][0] + '\n'
+                    for r in res['messages'][1:]:
                         msg += hold + r + '\n'
                 else:
                     msg += '\n'
 
+                if settings['SAVE_DIALOG_ATTACHMENTS']:
+                    for a in res['attachments']['photos']:
+                        if a not in attachments['photos']:
+                            attachments['photos'].append(a)
+                    for a in res['attachments']['video_ids']:
+                        if a not in attachments['video_ids']:
+                            attachments['video_ids'].append(a)
+                    for a in res['attachments']['docs']:
+                        if a not in attachments['docs']:
+                            attachments['docs'].append(a)
+
                 f.write(msg)
                 prev = m['from_id']
-                print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
+                print('\x1b[2K      {}/{}'.format(i, count), end='\r')
+
+        if settings['SAVE_DIALOG_ATTACHMENTS']:
+            at_folder = pjoin(folder, '{}_{id}'.format(
+                '_'.join(dialog_name.split(' ')), id=did))
+            makedirs(at_folder, exist_ok=True)
+
+            print()
+
+            if attachments['photos']:
+                af = pjoin(at_folder, 'Фото')
+                makedirs(af, exist_ok=True)
+
+                print('    [сохранение фото]')
+                print('      {}/{}'.format(0, len(attachments['photos'])), end='\r')
+
+                with Pool(settings['POOL_PROCESSES']) as pool:
+                    pool.starmap(download, zip(
+                        attachments['photos'], itertools.repeat(af)))
+
+                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
+                                                  len(attachments['photos'])))
+
+            if attachments['video_ids']:
+                af = pjoin(at_folder, 'Видео')
+                makedirs(af, exist_ok=True)
+
+                videos = vk_tools.get_all(
+                    method='video.get',
+                    max_count=200,
+                    values={
+                        'videos': ','.join(attachments['video_ids']),
+                        'extended': 1
+                    }
+                )
+
+                print('    [сохранение видео]')
+                print('      {}/{}'.format(0, len(videos['items'])), end='\r')
+
+                try:
+                    with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
+                        pool.starmap(download_video, zip(
+                            videos['items'], itertools.repeat(af)))
+                except MaybeEncodingError:
+                    None
+
+                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]), len(videos['items'])))
+
+            if attachments['docs']:
+                af = pjoin(at_folder, 'Документы')
+                makedirs(af, exist_ok=True)
+
+                print('    [сохранение документов]')
+                print('      {}/{}'.format(0, len(attachments['docs'])), end='\r')
+
+                with Pool(settings['POOL_PROCESSES']) as pool:
+                    pool.starmap(download, zip(
+                        attachments['docs'], itertools.repeat(af)))
+
+                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
+                                                  len(attachments['docs'])))
+
         print()
         print()
 
@@ -700,11 +834,11 @@ def dump_liked_posts(**kwargs):
 
 # GUI funcs
 
-def clear(): return print('\x1b[2J', '\x1b[1;1H', end='', flush=True)
+def clear(): return print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
 
 def lprint(*args, **kwargs):
-    print('\x1b[?25l')
+    AE_AVAILABLE and print('\x1b[?25l')
     for s in args:
         if (s.find('\x1b') == -1) and ('slow' in kwargs) and (kwargs['slow']):
             for ch in s:
@@ -713,48 +847,50 @@ def lprint(*args, **kwargs):
                 sleep(kwargs['delay'] if 'delay' in kwargs else 1/50)
         else:
             print(s, end='')
-    print('\x1b[?25h')
+    AE_AVAILABLE and print('\x1b[?25h')
 
 
 def cprint(msg, **kwargs):
     if isinstance(msg, list):
         for i in range(len(msg)):
             kwargs['color'][i] = colors[kwargs['color'][i]] if (
-                'color' in kwargs and kwargs['color'][i]) else mods['nrm']
+                'color' in kwargs and kwargs['color'][i]) else mods['nc']
             if 'mod' in kwargs and kwargs['mod'][i]:
                 kwargs['color'][i] += mods[kwargs['mod'][i]]
             lprint(kwargs['color'][i]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i])/2),
                                                              y=int(h/2-len(msg)/2+i)+1),
-                   msg[i], mods['nrm'], **kwargs)
+                   msg[i], mods['nc'], **kwargs)
 
     else:
         if not 'offset' in kwargs:
             kwargs['offset'] = 0
-        kwargs['color'] = colors[kwargs['color']] if 'color' in kwargs else mods['nrm']
+        kwargs['color'] = colors[kwargs['color']] if 'color' in kwargs else mods['nc']
         if 'mod' in kwargs:
             kwargs['color'] += mods[kwargs['mod']]
 
         lprint(kwargs['color']+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg)/2),
                                                       y=int(h/2-(len(msg.split('\n'))/2)+1-kwargs['offset'])),
-               msg, mods['nrm'], **kwargs)
+               msg, mods['nc'], **kwargs)
 
 
 def welcome():
+    AE_AVAILABLE and stdout.write('\x1b]0;{}\x07'.format(NAME))
     clear()
     cprint([NAME, 'v'+VERSION],
            color=['green', None],
            mod=['bold', None],
            slow=True, delay=1/50)
 
-    print('\x1b[?25l')
+    AE_AVAILABLE and print('\x1b[?25l')
     sleep(2)
-    print('\x1b[?25h')
+    AE_AVAILABLE and print('\x1b[?25h')
 
 
 def goodbye():
     clear()
     cprint(['Спасибо за использование скрипта :з', '', 'Made with ♥ by hikiko4ern'],
            color=['green', None, 'red'], mod=['bold', None, 'bold'])
+    AE_AVAILABLE and print('\x1b[?25h')
     raise SystemExit
 
 
@@ -798,10 +934,11 @@ def menu():
     print('Дамп данных:\n')
 
     for i in range(int(len(actions)/2)):
-        print('\x1b[34m[{ind}]\x1b[0m {name}'.format(ind=i+1, name=actions[i*2]))
-    print('\n\x1b[34m[F]\x1b[0m Все данные')
-    print('\n\x1b[34m[S]\x1b[0m Настройки')
-    print('\x1b[34m[Q]\x1b[0m Выход')
+        print('{clr}[{ind}]{nc} {name}'.format(
+            ind=i+1, name=actions[i*2], clr=colors['blue'], nc=mods['nc']))
+    print('\n{clr}[F]{nc} Все данные'.format(clr=colors['blue'], nc=mods['nc']))
+    print('\n{clr}[S]{nc} Настройки'.format(clr=colors['blue'], nc=mods['nc']))
+    print('{clr}[Q]{nc} Выход'.format(clr=colors['blue'], nc=mods['nc']))
 
     print()
     try:
@@ -829,9 +966,10 @@ def menu():
         elif callable(choice):
             choice()
             if choice is not settings_screen:
-                print('\n\x1b[32mСохранение завершено :з\x1b[0m')
-                input('\n[нажмите {clr}Enter{nrm} для продолжения]'.format(
-                    clr=colors['cyan']+mods['bold'], nrm=mods['nrm']))
+                print('\n{clr}Сохранение завершено :з{nc}'.format(
+                    clr=colors['green'], nc=mods['nc']))
+                input('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
+                    clr=colors['cyan']+mods['bold'], nc=mods['nc']))
             menu()
         else:
             raise IndexError
@@ -860,19 +998,20 @@ def settings_screen():
             color = colors['green'] if value else colors['red']
             value = 'Да' if value else 'Нет'
 
-        print('\x1b[34m[{ind}]\x1b[0m {name}: {clr}{value}{nrm}'.format(
+        print('{ind_clr}[{ind}]{nc} {name}: {clr}{value}{nc}'.format(
             ind=i+1,
             name=settings_names[s],
             value=value,
+            ind_clr=colors['cyan'],
             clr=color if 'color' in locals() else colors['yellow'],
-            nrm=mods['nrm']
+            nc=mods['nc']
         ))
         i += 1
 
         if 'color' in locals():
             del color
 
-    print('\n\x1b[34m[0]\x1b[0m В меню')
+    print('\n{clr}[0]{nc} В меню'.format(clr=colors['cyan'], nc=mods['nc']))
 
     try:
         choice = int(input('> '))
@@ -888,11 +1027,11 @@ def settings_screen():
             else:
                 while (type(new) is not type(settings[s])) or (s == 'REPLACE_CHAR' and new in INVALID_CHARS):
                     try:
-                        new = input('\nВведите новое значение для {clr}{}{nrm} ({tclr}{type}{nrm})\n> '.format(
+                        new = input('\nВведите новое значение для {clr}{}{nc} ({type_clr}{type}{nc})\n> '.format(
                             s,
                             clr=colors['red'],
-                            tclr=colors['yellow'],
-                            nrm=mods['nrm'],
+                            type_clr=colors['yellow'],
+                            nc=mods['nc'],
                             type=type(settings[s])))
                         if not new:
                             new = settings[s]
@@ -917,7 +1056,6 @@ def settings_screen():
 
 
 if __name__ == '__main__':
-    stdout.write('\x1b]0;{}\x07'.format(NAME))
     init()
     welcome()
     log()
