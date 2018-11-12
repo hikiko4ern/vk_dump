@@ -228,7 +228,7 @@ def download_video(v, folder):
                 240
 
         url = v['player'] if not 'access_key' in v else '{}?access_key={ak}'.format(
-            v['player'], at=v['access_key'])
+            v['player'], ak=v['access_key'])
         data = urlopen(url).read()
         try:
             download(
@@ -384,7 +384,7 @@ def dump_messages():
     def users_add(id):
         try:
             if id > 0:
-                # Users: {..., first_name, last_name, id, ...} => {%id%: {name: 'first_name + last_name', length: len(name) }
+                # User: {..., first_name, last_name, id, ...} => {id:{name: 'first_name + last_name', length: len(name)}
                 u = vk.users.get(user_ids=id)[0]
                 if ('deactivated' in u) and (u['deactivated'] == 'deleted') and (u['first_name'] == 'DELETED'):
                     name = 'DELETED'
@@ -740,7 +740,7 @@ def dump_messages():
         print()
 
 
-def dump_liked_posts(**kwargs):
+def dump_liked_posts():
     folder_photos = pjoin('dump', 'photos', 'Понравившиеся')
     makedirs(folder_photos, exist_ok=True)
     folder_videos = pjoin('dump', 'video', 'Понравившиеся')
