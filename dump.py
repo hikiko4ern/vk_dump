@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # Imports
 import argparse
@@ -26,7 +25,7 @@ from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.7'
+VERSION = '0.7.1'
 API_VERSION = '5.87'
 
 parser = argparse.ArgumentParser(description=NAME)
@@ -217,8 +216,8 @@ def download(obj, folder, **kwargs):
 
 def download_video(v, folder):
     if 'platform' in v:
-        if v['platform'] == 'YouTube':
-            return download_youtube(v['player'], folder)
+        # if v['platform'] in ('YouTube', 'Coub', 'Vimeo'):
+        return download_external(v['player'], folder)
     else:
         if not 'player' in v:
             return False
@@ -242,16 +241,21 @@ def download_video(v, folder):
             return False
 
 
-def download_youtube(url, folder):
+def download_external(url, folder):
     if not url:
         return False
 
-    YoutubeDL({
-        'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
-        'nooverwrites': True,
-        'no_warnings': True,
-        'quiet': True
-    }).download((url,))
+    try:
+        YoutubeDL({
+            'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
+            'nooverwrites': True,
+            'no_warnings': True,
+            'ignoreerros': True,
+            'quiet': True
+        }).download((url,))
+        return True
+    except Exception:
+        return False
 
 
 def dump_photos():
@@ -380,7 +384,7 @@ def dump_docs():
         print('\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), docs['count']))
 
 
-def dump_messages():
+def dump_messages(**kwargs):
     def users_add(id):
         try:
             if id > 0:
@@ -402,7 +406,7 @@ def dump_messages():
         except Exception:
             users[id] = {'name': r'{unknown user}', 'length': 3}
 
-    def message_handler(msg):
+    def message_handler(msg, **kwargs):
         """
             Обработчик сообщений.
             Возвращает объект
@@ -434,15 +438,25 @@ def dump_messages():
         if ('fwd_messages' in msg) and msg['fwd_messages']:
             for fwd in msg['fwd_messages']:
                 res = message_handler(fwd)
-                if len(res['messages']) > 0:
-                    if fwd['from_id'] not in users:
-                        users_add(fwd['from_id'])
 
-                    r['messages'].append('{name}> {}'.format(
-                        res['messages'][0], name=users.get(fwd['from_id'])['name']))
-                    for m in res['messages'][1:]:
+                if 'attachments_only' not in kwargs:
+                    if len(res['messages']) > 0:
+                        if fwd['from_id'] not in users:
+                            users_add(fwd['from_id'])
+
                         r['messages'].append('{name}> {}'.format(
-                            m, name=' '*len(users.get(fwd['from_id'])['name'])))
+                            res['messages'][0], name=users.get(fwd['from_id'])['name']))
+                        for m in res['messages'][1:]:
+                            r['messages'].append('{name}> {}'.format(
+                                m, name=' '*len(users.get(fwd['from_id'])['name'])))
+
+                for a in res['attachments']['photos']:
+                    r['attachments']['photos'].append(a)
+                for a in res['attachments']['video_ids']:
+                    r['attachments']['video_ids'].append(a)
+                for a in res['attachments']['docs']:
+                    r['attachments']['docs'].append(a)
+
 
         if len(msg['text']) > 0:
             for line in msg['text'].split('\n'):
@@ -451,69 +465,88 @@ def dump_messages():
         if msg['attachments']:
             for at in msg['attachments']:
                 tp = at['type']
-                if tp == 'photo':
-                    if 'action' not in msg:
-                        r['messages'].append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
-                        r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
-                elif tp == 'video':
-                    r['messages'].append(
-                        '[видео: vk.com/video{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
-                    r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
-                        oid=at[tp]['owner_id'],
-                        id=at[tp]['id'],
-                        access_key='_' +
-                        at[tp]['access_key'] if 'access_key' in at[tp] else ''
-                    ))
-                elif tp == 'audio':
-                    r['messages'].append('[аудио: {artist} - {title}]'.format(artist=at[tp]
-                                                                              ['artist'], title=at[tp]['title']))
-                elif tp == 'doc':
-                    r['messages'].append(
-                        '[документ: vk.com/doc{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
-                    r['attachments']['docs'].append({
-                        'url': at[tp]['url'],
-                        'name': at[tp]['title']+'_'+str(at[tp]['id']),
-                        'ext': at[tp]['ext']
-                    })
-                elif tp == 'link':
-                    r['messages'].append('[ссылка: {title} ({url})]'.format(
-                        title=at[tp]['title'], url=at[tp]['url']))
-                elif tp == 'market':
-                    r['messages'].append('[товар: {title} ({price}{cur}) [vk.com/market?w=product{owid}_{id}]]'.format(
-                        title=at[tp]['title'],
-                        owid=at[tp]['owner_id'],
-                        id=at[tp]['id'],
-                        price=at[tp]['price']['amount'],
-                        cur=at[tp]['price']['currency']['name'].lower()))
-                # TODO: доделать market_album
-                elif tp == 'market_album':
-                    r['messages'].append(
-                        '[коллекция товаров: {title}]'.format(title=at[tp]['title']))
-                elif tp == 'wall':
-                    r['messages'].append(
-                        '[пост: vk.com/wall{owid}_{id}]'.format(owid=at[tp]['to_id'], id=at[tp]['id']))
-                # TODO: доделать wall_reply: добавить поддержку вложений (а надо ли?)
-                elif tp == 'wall_reply':
-                    if at[tp]['from_id'] not in users:
-                        users_add(at[tp]['from_id'])
-                    u = users.get(at[tp]['from_id'])
-                    r['messages'].append('[комментарий к посту от {user}: {text} (vk.com/wall{owid}_{pid}?reply={id})]'.format(
-                        user=u['name'],
-                        text=at[tp]['text'],
-                        owid=at[tp]['owner_id'],
-                        pid=at[tp]['post_id'],
-                        id=at[tp]['id']))
-                elif tp == 'sticker':
-                    r['messages'].append('[стикер: {url}]'.format(url=at[tp]['images'][-1]['url']))
-                elif tp == 'gift':
-                    r['messages'].append('[подарок: {id}]'.format(id=at[tp]['id']))
-                elif tp == 'graffiti':
-                    r['messages'].append('[граффити: {url}]'.format(url=at[tp]['url']))
-                elif tp == 'audio_message':
-                    r['messages'].append(
-                        '[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
+
+                if 'attachments_only' not in kwargs:
+                    if tp == 'photo':
+                        if 'action' not in msg:
+                            r['messages'].append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
+                            r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
+                    elif tp == 'video':
+                        r['messages'].append(
+                            '[видео: vk.com/video{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
+                        r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
+                            oid=at[tp]['owner_id'],
+                            id=at[tp]['id'],
+                            access_key='_' +
+                            at[tp]['access_key'] if 'access_key' in at[tp] else ''
+                        ))
+                    elif tp == 'audio':
+                        r['messages'].append('[аудио: {artist} - {title}]'.format(artist=at[tp]
+                                                                                  ['artist'], title=at[tp]['title']))
+                    elif tp == 'doc':
+                        r['messages'].append(
+                            '[документ: vk.com/doc{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
+                        r['attachments']['docs'].append({
+                            'url': at[tp]['url'],
+                            'name': at[tp]['title']+'_'+str(at[tp]['id']),
+                            'ext': at[tp]['ext']
+                        })
+                    elif tp == 'link':
+                        r['messages'].append('[ссылка: {title} ({url})]'.format(
+                            title=at[tp]['title'], url=at[tp]['url']))
+                    elif tp == 'market':
+                        r['messages'].append('[товар: {title} ({price}{cur}) [vk.com/market?w=product{owid}_{id}]]'.format(
+                            title=at[tp]['title'],
+                            owid=at[tp]['owner_id'],
+                            id=at[tp]['id'],
+                            price=at[tp]['price']['amount'],
+                            cur=at[tp]['price']['currency']['name'].lower()))
+                    # TODO: доделать market_album
+                    elif tp == 'market_album':
+                        r['messages'].append(
+                            '[коллекция товаров: {title}]'.format(title=at[tp]['title']))
+                    elif tp == 'wall':
+                        r['messages'].append(
+                            '[пост: vk.com/wall{owid}_{id}]'.format(owid=at[tp]['to_id'], id=at[tp]['id']))
+                    # TODO: доделать wall_reply: добавить поддержку вложений (а надо ли?)
+                    elif tp == 'wall_reply':
+                        if at[tp]['from_id'] not in users:
+                            users_add(at[tp]['from_id'])
+                        u = users.get(at[tp]['from_id'])
+                        r['messages'].append('[комментарий к посту от {user}: {text} (vk.com/wall{owid}_{pid}?reply={id})]'.format(
+                            user=u['name'],
+                            text=at[tp]['text'],
+                            owid=at[tp]['owner_id'],
+                            pid=at[tp]['post_id'],
+                            id=at[tp]['id']))
+                    elif tp == 'sticker':
+                        r['messages'].append('[стикер: {url}]'.format(url=at[tp]['images'][-1]['url']))
+                    elif tp == 'gift':
+                        r['messages'].append('[подарок: {id}]'.format(id=at[tp]['id']))
+                    elif tp == 'graffiti':
+                        r['messages'].append('[граффити: {url}]'.format(url=at[tp]['url']))
+                    elif tp == 'audio_message':
+                        r['messages'].append(
+                            '[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
+                    else:
+                        r['messages'].append('[вложение с типом "{tp}"]'.format(tp=tp))
+
                 else:
-                    r['messages'].append('[вложение с типом "{tp}"]'.format(tp=tp))
+                    if tp == 'photo':
+                        r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
+                    elif tp == 'video':
+                        r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
+                            oid=at[tp]['owner_id'],
+                            id=at[tp]['id'],
+                            access_key='_' +
+                            at[tp]['access_key'] if 'access_key' in at[tp] else ''
+                        ))
+                    elif tp == 'doc':
+                        r['attachments']['docs'].append({
+                            'url': at[tp]['url'],
+                            'name': at[tp]['title']+'_'+str(at[tp]['id']),
+                            'ext': at[tp]['ext']
+                        })
 
         if 'action' in msg and msg['action']:
             """
@@ -523,58 +556,63 @@ def dump_messages():
             act = msg['action']
             tp = act['type']
 
-            if ('member_id' in act) and (act['member_id'] > 0) and (act['member_id'] not in users):
-                try:
-                    users_add(act['member_id'])
-                except Exception:
-                    users[act['member_id']] = {'name': r'{unknown user}', 'length': 3}
+            if 'attachments_only' not in kwargs:
+                if ('member_id' in act) and (act['member_id'] > 0) and (act['member_id'] not in users):
+                    try:
+                        users_add(act['member_id'])
+                    except Exception:
+                        users[act['member_id']] = {'name': r'{unknown user}', 'length': 3}
 
-            if tp == 'chat_photo_update':
-                r['messages'].append('[{member} обновил фотографию беседы ({url})]'.format(
-                    member=users[msg['from_id']]['name'],
-                    url=msg['attachments'][0]['photo']['sizes'][-1]['url']
-                ))
-                r['attachments']['photos'].append(
-                    msg['attachments'][0]['photo']['sizes'][-1]['url'])
-            elif tp == 'chat_photo_remove':
-                r['messages'].append('[{member} удалил фотографию беседы]'.format(
-                    member=users[msg['from_id']]['name']
-                ))
-            elif tp == 'chat_create':
-                r['messages'].append('[{member} создал чат "{chat_name}"]'.format(
-                    member=users[msg['from_id']]['name'],
-                    chat_name=act['text']
-                ))
-            elif tp == 'chat_title_update':
-                r['messages'].append('[{member} изменил название беседы на «{chat_name}»]'.format(
-                    member=users[msg['from_id']]['name'],
-                    chat_name=act['text']
-                ))
-            elif tp == 'chat_invite_user':
-                r['messages'].append('[{member} пригласил {user}]'.format(
-                    member=users[msg['from_id']]['name'],
-                    user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
-                ))
-            elif tp == 'chat_kick_user':
-                r['messages'].append('[{member} исключил {user}]'.format(
-                    member=users[msg['from_id']]['name'],
-                    user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
-                ))
-            # TODO: полная обработка закреплённого сообщения
-            elif tp == 'chat_pin_message':
-                r['messages'].append('[{member} закрепил сообщение #{id}: "{message}"]'.format(
-                    member=users[msg['from_id']]['name'],
-                    id=act['conversation_message_id'],
-                    message=act['message'] if 'message' in act else ''
-                ))
-            elif tp == 'chat_unpin_message':
-                r['messages'].append('[{member} открепил сообщение]'.format(
-                    member=users[msg['from_id']]['name']
-                ))
-            elif tp == 'chat_invite_user_by_link':
-                r['messages'].append('[{user} присоединился по ссылке]'.format(
-                    user=users[msg['from_id']]['name']
-                ))
+                if tp == 'chat_photo_update':
+                    r['messages'].append('[{member} обновил фотографию беседы ({url})]'.format(
+                        member=users[msg['from_id']]['name'],
+                        url=msg['attachments'][0]['photo']['sizes'][-1]['url']
+                    ))
+                    r['attachments']['photos'].append(
+                        msg['attachments'][0]['photo']['sizes'][-1]['url'])
+                elif tp == 'chat_photo_remove':
+                    r['messages'].append('[{member} удалил фотографию беседы]'.format(
+                        member=users[msg['from_id']]['name']
+                    ))
+                elif tp == 'chat_create':
+                    r['messages'].append('[{member} создал чат "{chat_name}"]'.format(
+                        member=users[msg['from_id']]['name'],
+                        chat_name=act['text']
+                    ))
+                elif tp == 'chat_title_update':
+                    r['messages'].append('[{member} изменил название беседы на «{chat_name}»]'.format(
+                        member=users[msg['from_id']]['name'],
+                        chat_name=act['text']
+                    ))
+                elif tp == 'chat_invite_user':
+                    r['messages'].append('[{member} пригласил {user}]'.format(
+                        member=users[msg['from_id']]['name'],
+                        user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
+                    ))
+                elif tp == 'chat_kick_user':
+                    r['messages'].append('[{member} исключил {user}]'.format(
+                        member=users[msg['from_id']]['name'],
+                        user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
+                    ))
+                # TODO: полная обработка закреплённого сообщения
+                elif tp == 'chat_pin_message':
+                    r['messages'].append('[{member} закрепил сообщение #{id}: "{message}"]'.format(
+                        member=users[msg['from_id']]['name'],
+                        id=act['conversation_message_id'],
+                        message=act['message'] if 'message' in act else ''
+                    ))
+                elif tp == 'chat_unpin_message':
+                    r['messages'].append('[{member} открепил сообщение]'.format(
+                        member=users[msg['from_id']]['name']
+                    ))
+                elif tp == 'chat_invite_user_by_link':
+                    r['messages'].append('[{user} присоединился по ссылке]'.format(
+                        user=users[msg['from_id']]['name']
+                    ))
+            else:
+                if tp == 'chat_photo_update':
+                    r['attachments']['photos'].append(
+                        msg['attachments'][0]['photo']['sizes'][-1]['url'])
 
         return r
 
@@ -637,46 +675,66 @@ def dump_messages():
             'docs': []
         }
 
-        with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
+        if 'attachments_only' not in kwargs:
+            with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
+                count = len(history['items'])
+                print('    [сохранение сообщений]')
+                print('      {}/{}'.format(0, count), end='\r')
+                prev = None
+
+                for i in range(count):
+                    m = history['items'][i]
+
+                    if m['from_id'] not in users:
+                        users_add(m['from_id'])
+
+                    hold = ' '*(users.get(m['from_id'])['length']+2)
+                    msg = hold if (prev and prev == m['from_id']) else users.get(
+                        m['from_id'])['name']+': '
+
+                    res = message_handler(m)
+                    if res['messages']:
+                        msg += res['messages'][0] + '\n'
+                        for r in res['messages'][1:]:
+                            msg += hold + r + '\n'
+                    else:
+                        msg += '\n'
+
+                    if settings['SAVE_DIALOG_ATTACHMENTS']:
+                        for a in res['attachments']['photos']:
+                            if a not in attachments['photos']:
+                                attachments['photos'].append(a)
+                        for a in res['attachments']['video_ids']:
+                            if a not in attachments['video_ids']:
+                                attachments['video_ids'].append(a)
+                        for a in res['attachments']['docs']:
+                            if a not in attachments['docs']:
+                                attachments['docs'].append(a)
+
+                    f.write(msg)
+                    prev = m['from_id']
+                    print('\x1b[2K      {}/{}'.format(i, count), end='\r')
+        else:
             count = len(history['items'])
-            print('    [сохранение сообщений]')
-            print('\x1b[2K      {}/{}'.format(0, count), end='\r')
-            prev = None
+            print('    [обработка сообщений]')
+            print('      {}/{}'.format(0, count), end='\r')
 
             for i in range(count):
-                m = history['items'][i]
+                res = message_handler(history['items'][i], attachments_only=True)
 
-                if m['from_id'] not in users:
-                    users_add(m['from_id'])
+                for a in res['attachments']['photos']:
+                    if a not in attachments['photos']:
+                        attachments['photos'].append(a)
+                for a in res['attachments']['video_ids']:
+                    if a not in attachments['video_ids']:
+                        attachments['video_ids'].append(a)
+                for a in res['attachments']['docs']:
+                    if a not in attachments['docs']:
+                        attachments['docs'].append(a)
 
-                hold = ' '*(users.get(m['from_id'])['length']+2)
-                msg = hold if (prev and prev == m['from_id']) else users.get(
-                    m['from_id'])['name']+': '
-
-                res = message_handler(m)
-                if res['messages']:
-                    msg += res['messages'][0] + '\n'
-                    for r in res['messages'][1:]:
-                        msg += hold + r + '\n'
-                else:
-                    msg += '\n'
-
-                if settings['SAVE_DIALOG_ATTACHMENTS']:
-                    for a in res['attachments']['photos']:
-                        if a not in attachments['photos']:
-                            attachments['photos'].append(a)
-                    for a in res['attachments']['video_ids']:
-                        if a not in attachments['video_ids']:
-                            attachments['video_ids'].append(a)
-                    for a in res['attachments']['docs']:
-                        if a not in attachments['docs']:
-                            attachments['docs'].append(a)
-
-                f.write(msg)
-                prev = m['from_id']
                 print('\x1b[2K      {}/{}'.format(i, count), end='\r')
 
-        if settings['SAVE_DIALOG_ATTACHMENTS']:
+        if settings['SAVE_DIALOG_ATTACHMENTS'] or ('attachments_only' in kwargs and kwargs['attachments_only']):
             at_folder = pjoin(folder, '{}_{id}'.format(
                 '_'.join(dialog_name.split(' ')), id=did))
             makedirs(at_folder, exist_ok=True)
@@ -688,7 +746,7 @@ def dump_messages():
                 makedirs(af, exist_ok=True)
 
                 print('    [сохранение фото]')
-                print('      {}/{}'.format(0, len(attachments['photos'])), end='\r')
+                print('      .../{}'.format(len(attachments['photos'])), end='\r')
 
                 with Pool(settings['POOL_PROCESSES']) as pool:
                     pool.starmap(download, zip(
@@ -711,7 +769,7 @@ def dump_messages():
                 )
 
                 print('    [сохранение видео]')
-                print('      {}/{}'.format(0, len(videos['items'])), end='\r')
+                print('      .../{}'.format(len(videos['items'])), end='\r')
 
                 try:
                     with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
@@ -727,7 +785,7 @@ def dump_messages():
                 makedirs(af, exist_ok=True)
 
                 print('    [сохранение документов]')
-                print('      {}/{}'.format(0, len(attachments['docs'])), end='\r')
+                print('      .../{}'.format(len(attachments['docs'])), end='\r')
 
                 with Pool(settings['POOL_PROCESSES']) as pool:
                     pool.starmap(download, zip(
@@ -738,6 +796,10 @@ def dump_messages():
 
         print()
         print()
+
+
+def dump_attachments_only():
+    dump_messages(attachments_only=True)
 
 
 def dump_liked_posts():
@@ -835,7 +897,6 @@ def dump_liked_posts():
 
 
 # GUI funcs
-
 def clear(): return print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
 
@@ -928,6 +989,7 @@ def menu():
         'Видео (по альбомам)', dump_video,
         'Документы', dump_docs,
         'Сообщения', dump_messages,
+        'Вложения диалогов', dump_attachments_only,
         'Данные понравившихся постов', dump_liked_posts
     ]
 
