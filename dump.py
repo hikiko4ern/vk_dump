@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-# Imports
 import argparse
 from configparser import ConfigParser
 
@@ -25,12 +24,19 @@ from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.7.1'
+VERSION = '0.7.2'
 API_VERSION = '5.87'
 
 parser = argparse.ArgumentParser(description=NAME)
-parser.add_argument('--token', type=str, dest='TOKEN',
-                    help='access_token for auth')
+parser.add_argument('--version', action='version', version=VERSION)
+auth = parser.add_argument_group('Аутентификация')
+auth.add_argument('-l', '--login', type=str, metavar='\b', help='логин')
+auth.add_argument('-p', '--password', type=str, metavar='\b', help='пароль')
+auth.add_argument('-t', '--token', type=str, metavar='\b', help='access_token')
+dump = parser.add_argument_group('Дамп данных')
+dump.add_argument('--dump', type=str, nargs='*',
+                  choices=('photos', 'audio', 'video', 'docs', 'messages', 'attachments', 'liked_posts', 'all'),
+                  help='Данные для сохранения.')
 
 AVAILABLE_THREADS = cpu_count()
 
@@ -56,9 +62,9 @@ INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 INVALID_POSIX_CHARS = ['$']
 
 
-# Dump funcs
+#
 def init():
-    global parser, args, w, h, colors, mods, settings, ANSI_AVAILABLE, INVALID_CHARS
+    global args, w, h, colors, mods, settings, ANSI_AVAILABLE, INVALID_CHARS
 
     args = parser.parse_args()
 
@@ -123,20 +129,27 @@ def settings_save():
 
 
 def log(*msg):
-    clear()
     global login, vk_session, vk, vk_tools, account
-    cprint(msg[0] if msg else '[для продолжения необходимо войти]',
-           color='red', mod='bold', offset=2, delay=1/50)
+
+    if not args.dump:
+        clear()
+        cprint(msg[0] if msg else '[для продолжения необходимо войти]',
+               color='red', mod='bold', offset=2, delay=1/50)
+
     try:
-        if args.TOKEN:
-            vk_session = vk_api.VkApi(token=args.TOKEN, app_id=6631721,
+        if args.token:
+            vk_session = vk_api.VkApi(token=args.token, app_id=6631721,
                                       auth_handler=auth_handler, api_version=API_VERSION)
         else:
-            login = input('    login: {clr}'.format(clr=colors['cyan'] if ANSI_AVAILABLE else ''))
-            print(mods['nc'], end='')
-            password = input('    password: {clr}'.format(
-                clr=colors['cyan'] if ANSI_AVAILABLE else ''))
-            print(mods['nc'], end='')
+            if args.login and args.password:
+                login = args.login
+                password = args.password
+            else:
+                login = input('    login: {clr}'.format(clr=colors['cyan'] if ANSI_AVAILABLE else ''))
+                print(mods['nc'], end='')
+                password = input('    password: {clr}'.format(
+                    clr=colors['cyan'] if ANSI_AVAILABLE else ''))
+                print(mods['nc'], end='')
             vk_session = vk_api.VkApi(login, password,
                                       config=(
                                           MemoryConfig if settings['MEMORY_CONFIG'] else Config),
@@ -258,6 +271,7 @@ def download_external(url, folder):
         return False
 
 
+# Dump funcs
 def dump_photos():
     makedirs(pjoin('dump', 'photos'), exist_ok=True)
     albums = vk.photos.getAlbums(need_system=1)
@@ -896,6 +910,11 @@ def dump_liked_posts():
         None
 
 
+def dump_all():
+    for d in (dump_photos, dump_audio, dump_video, dump_docs, dump_messages, dump_attachments_only, dump_liked_posts):
+        d()
+        print()
+
 # GUI funcs
 def clear(): return print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
@@ -963,7 +982,7 @@ def logInfo():
     global account, args
 
     log_info = [
-        'Login: \x1b[1;36m{}\x1b[0m'.format(account['phone'] if args.TOKEN else login),
+        'Login: \x1b[1;36m{}\x1b[0m'.format(account['phone'] if args.token else login),
         'Name: \x1b[1;36m{fn} {ln}\x1b[0m'.format(fn=account['first_name'], ln=account['last_name'])
     ]
     ln = 0
@@ -993,7 +1012,7 @@ def menu():
         'Данные понравившихся постов', dump_liked_posts
     ]
 
-    if args.TOKEN:
+    if args.token:
         actions.pop(actions.index(dump_audio)-1)
         actions.pop(actions.index(dump_audio))
 
@@ -1122,7 +1141,40 @@ def settings_screen():
 
 
 if __name__ == '__main__':
+    from pprint import pprint
     init()
-    welcome()
-    log()
-    menu()
+    if args.verbose:
+        for a in vars(args):
+            print(a+':', (colors['green']+'ON'+mods['nc'] if getattr(args, a) else colors['red']+'OFF'+mods['nc']) if isinstance(getattr(args, a), bool) else getattr(args, a))
+        sleep(5)
+
+    if args.dump:
+        if (not args.login or not args.password) and (not args.token):
+            print('|--------------------------------------------------------|')
+            print('|  Необходимо передать либо логин и пароль, либо токен.  |')
+            print('|--------------------------------------------------------|')
+        else:
+            log()
+            for d in args.dump:
+                # DUMPS[d]()
+                if d == 'photos':
+                    dump_photos()
+                elif d == 'audio':
+                    dump_audio()
+                elif d == 'video':
+                    dump_video()
+                elif d == 'docs':
+                    dump_docs()
+                elif d == 'messages':
+                    dump_messages()
+                elif d == 'attachments':
+                    dump_attachments_only()
+                elif d == 'liked_posts':
+                    dump_liked_posts()
+                elif d == 'all':
+                    dump_all()
+                print()
+    else:
+        welcome()
+        log()
+        menu()
