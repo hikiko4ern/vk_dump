@@ -1143,10 +1143,6 @@ def settings_screen():
 if __name__ == '__main__':
     from pprint import pprint
     init()
-    if args.verbose:
-        for a in vars(args):
-            print(a+':', (colors['green']+'ON'+mods['nc'] if getattr(args, a) else colors['red']+'OFF'+mods['nc']) if isinstance(getattr(args, a), bool) else getattr(args, a))
-        sleep(5)
 
     if args.dump:
         if (not args.login or not args.password) and (not args.token):
