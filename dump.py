@@ -3,7 +3,7 @@
 import argparse
 from configparser import ConfigParser
 
-from os import cpu_count, name as osname, get_terminal_size, makedirs, remove, walk
+from os import cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
 from os.path import exists, join as pjoin
 from sys import stdout
 from time import sleep
@@ -35,7 +35,8 @@ auth.add_argument('-p', '--password', type=str, metavar='\b', help='пароль
 auth.add_argument('-t', '--token', type=str, metavar='\b', help='access_token')
 dump = parser.add_argument_group('Дамп данных')
 dump.add_argument('--dump', type=str, nargs='*',
-                  choices=('photos', 'audio', 'video', 'docs', 'messages', 'attachments', 'liked_posts', 'all'),
+                  choices=('photos', 'audio', 'video', 'docs', 'messages',
+                           'attachments', 'liked_posts', 'all'),
                   help='Данные для сохранения.')
 
 AVAILABLE_THREADS = cpu_count()
@@ -46,6 +47,7 @@ settings = {
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
     'POOL_PROCESSES': 4*AVAILABLE_THREADS,  # макс. число создаваемых процессов
     'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
+    'KEEP_DIALOG_NAMES': True,
     'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
 }
 
@@ -55,6 +57,7 @@ settings_names = {
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
     'POOL_PROCESSES': 'Количество процессов для мультипоточной загрузке',
     'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео',
+    'KEEP_DIALOG_NAMES': 'Сохранять название диалога в случае его изменения',
     'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов'
 }
 
@@ -133,8 +136,8 @@ def log(*msg):
 
     if not args.dump:
         clear()
-        cprint(msg[0] if msg else '[для продолжения необходимо войти]',
-               color='red', mod='bold', offset=2, delay=1/50)
+        print_center(msg[0] if msg else '[для продолжения необходимо войти]',
+                     color='red', mod='bold', offset=2, delay=1/50)
 
     try:
         if args.token:
@@ -145,7 +148,8 @@ def log(*msg):
                 login = args.login
                 password = args.password
             else:
-                login = input('    login: {clr}'.format(clr=colors['cyan'] if ANSI_AVAILABLE else ''))
+                login = input('    login: {clr}'.format(
+                    clr=colors['cyan'] if ANSI_AVAILABLE else ''))
                 print(mods['nc'], end='')
                 password = input('    password: {clr}'.format(
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
@@ -232,20 +236,20 @@ def download_video(v, folder):
         # if v['platform'] in ('YouTube', 'Coub', 'Vimeo'):
         return download_external(v['player'], folder)
     else:
-        if not 'player' in v:
+        if 'player' not in v:
             return False
         if 'height' not in v:
             v['height'] = 480 if 'photo_800' in v else \
                 360 if 'photo_320' in v else \
                 240
 
-        url = v['player'] if not 'access_key' in v else '{}?access_key={ak}'.format(
-            v['player'], ak=v['access_key'])
+        url = v['player'] if 'access_key' not in v else f'{v["player"]}?access_key={v["access_key"]}'
         data = urlopen(url).read()
         try:
             download(
                 research(b'https://cs.*vkuservideo.*' +
-                         str(min(v['height'], v['width']) if 'width' in v else v['height']).encode()+b'.mp4', data).group(0).decode(),
+                         str(min(v['height'], v['width']) if 'width' in v else v['height'])
+                         .encode()+b'.mp4', data).group(0).decode(),
                 folder,
                 name=v['title']+'_'+str(v['id']),
                 ext='mp4'
@@ -305,7 +309,6 @@ def dump_photos():
 
 
 def dump_audio():
-    global folder
     import vk_api.audio
 
     print('[получение списка аудио]')
@@ -366,7 +369,7 @@ def dump_video():
                 objs.append(v)
 
             print('    .../{}'.format(video['count']), end='\r')
-            with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
+            with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
                 pool.starmap(download_video, zip(objs, itertools.repeat(folder)))
             print('\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
 
@@ -412,7 +415,7 @@ def dump_messages(**kwargs):
                     users[u['id']] = {'name': name, 'length': len(name)}
 
             elif id < 0:
-                # Groups: {..., name, id, ...} => {-%id%: {name: 'name', length: len(name) }
+                # Group: {..., name, id, ...} => {-%id%: {name: 'name', length: len(name) }
                 g = vk.messages.getConversationsById(peer_ids=id, extended=1)['groups'][0]
                 name = g['name']
                 users[-g['id']] = {'name': name, 'length': len(name)}
@@ -422,23 +425,23 @@ def dump_messages(**kwargs):
 
     def message_handler(msg, **kwargs):
         """
-            Обработчик сообщений.
-            Возвращает объект
-                {
-                    "messages": [...],
-                    "attachments": {
-                        "photos": [...],
-                        "video_ids": [...],
-                        "docs": [...]
-                    }
+        Обработчик сообщений.
+        Возвращает объект
+            {
+                "messages": [...],
+                "attachments": {
+                    "photos": [...],
+                    "video_ids": [...],
+                    "docs": [...]
                 }
+            }
 
-            [документация API]
-                [вложения]
-                    [сообщения]
-                        - vk.com/dev/objects/attachments_m
-                    [wall_reply]
-                        - vk.com/dev/objects/attachments_w
+        [документация API]
+            [вложения]
+                [сообщения]
+                    - vk.com/dev/objects/attachments_m
+                [wall_reply]
+                    - vk.com/dev/objects/attachments_w
         """
         r = {
             'messages': [],
@@ -471,7 +474,6 @@ def dump_messages(**kwargs):
                 for a in res['attachments']['docs']:
                     r['attachments']['docs'].append(a)
 
-
         if len(msg['text']) > 0:
             for line in msg['text'].split('\n'):
                 r['messages'].append(line)
@@ -483,7 +485,8 @@ def dump_messages(**kwargs):
                 if 'attachments_only' not in kwargs:
                     if tp == 'photo':
                         if 'action' not in msg:
-                            r['messages'].append('[фото: {url}]'.format(url=at[tp]['sizes'][-1]['url']))
+                            r['messages'].append('[фото: {url}]'.format(
+                                url=at[tp]['sizes'][-1]['url']))
                             r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
                     elif tp == 'video':
                         r['messages'].append(
@@ -509,32 +512,33 @@ def dump_messages(**kwargs):
                         r['messages'].append('[ссылка: {title} ({url})]'.format(
                             title=at[tp]['title'], url=at[tp]['url']))
                     elif tp == 'market':
-                        r['messages'].append('[товар: {title} ({price}{cur}) [vk.com/market?w=product{owid}_{id}]]'.format(
-                            title=at[tp]['title'],
-                            owid=at[tp]['owner_id'],
-                            id=at[tp]['id'],
-                            price=at[tp]['price']['amount'],
-                            cur=at[tp]['price']['currency']['name'].lower()))
-                    # TODO: доделать market_album
+                        r['messages']\
+                            .append('[товар: {title} ({price}{cur}) [vk.com/market?w=product{owid}_{id}]]'.format(
+                                title=at[tp]['title'],
+                                owid=at[tp]['owner_id'],
+                                id=at[tp]['id'],
+                                price=at[tp]['price']['amount'],
+                                cur=at[tp]['price']['currency']['name'].lower()))
                     elif tp == 'market_album':
                         r['messages'].append(
                             '[коллекция товаров: {title}]'.format(title=at[tp]['title']))
                     elif tp == 'wall':
                         r['messages'].append(
                             '[пост: vk.com/wall{owid}_{id}]'.format(owid=at[tp]['to_id'], id=at[tp]['id']))
-                    # TODO: доделать wall_reply: добавить поддержку вложений (а надо ли?)
                     elif tp == 'wall_reply':
                         if at[tp]['from_id'] not in users:
                             users_add(at[tp]['from_id'])
                         u = users.get(at[tp]['from_id'])
-                        r['messages'].append('[комментарий к посту от {user}: {text} (vk.com/wall{owid}_{pid}?reply={id})]'.format(
-                            user=u['name'],
-                            text=at[tp]['text'],
-                            owid=at[tp]['owner_id'],
-                            pid=at[tp]['post_id'],
-                            id=at[tp]['id']))
+                        r['messages']\
+                            .append('[комментарий к посту от {user}: {msg} (vk.com/wall{oid}_{pid}?reply={id})]'.format(
+                                user=u['name'],
+                                msg=at[tp]['text'],
+                                oid=at[tp]['owner_id'],
+                                pid=at[tp]['post_id'],
+                                id=at[tp]['id']))
                     elif tp == 'sticker':
-                        r['messages'].append('[стикер: {url}]'.format(url=at[tp]['images'][-1]['url']))
+                        r['messages'].append('[стикер: {url}]'.format(
+                            url=at[tp]['images'][-1]['url']))
                     elif tp == 'gift':
                         r['messages'].append('[подарок: {id}]'.format(id=at[tp]['id']))
                     elif tp == 'graffiti':
@@ -601,12 +605,14 @@ def dump_messages(**kwargs):
                 elif tp == 'chat_invite_user':
                     r['messages'].append('[{member} пригласил {user}]'.format(
                         member=users[msg['from_id']]['name'],
-                        user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
+                        user=users[act['member_id']
+                                   ]['name'] if act['member_id'] > 0 else act['email'],
                     ))
                 elif tp == 'chat_kick_user':
                     r['messages'].append('[{member} исключил {user}]'.format(
                         member=users[msg['from_id']]['name'],
-                        user=users[act['member_id']]['name'] if act['member_id'] > 0 else act['email'],
+                        user=users[act['member_id']
+                                   ]['name'] if act['member_id'] > 0 else act['email'],
                     ))
                 # TODO: полная обработка закреплённого сообщения
                 elif tp == 'chat_pin_message':
@@ -665,9 +671,22 @@ def dump_messages(**kwargs):
         else:
             dialog_name = r'{unknown}'
 
-        print('  Диалог: {}'.format(dialog_name))
+        for c in INVALID_CHARS:
+            dialog_name = dialog_name.replace(c, settings['REPLACE_CHAR'])
+
+        fn = '{}_{id}'.format('_'.join(dialog_name.split(' ')), id=did)
+        for n in listdir(folder):
+            if str(did) in n:
+                if settings['KEEP_DIALOG_NAMES']:
+                    fn = n.split('.txt')[0]
+                else:
+                    shutil.move(pjoin(folder, n), pjoin(folder, '{}_{id}'.format('_'.join(dialog_name.split(' ')),
+                                                                                 id=did)+('.txt' if '.txt' in n else '')))
+
+        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(f'(as {fn})' if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
         print('    [кэширование]')
         print('\x1b[2K      0/???', end='\r')
+
 
         history = vk_tools.get_all(
             method='messages.getHistory',
@@ -680,9 +699,6 @@ def dump_messages(**kwargs):
             })
         print('\x1b[2K      {}/{}'.format(len(history['items']), history['count']))
 
-        for c in INVALID_CHARS:
-            dialog_name = dialog_name.replace(c, settings['REPLACE_CHAR'])
-
         attachments = {
             'photos': [],
             'video_ids': [],
@@ -690,7 +706,7 @@ def dump_messages(**kwargs):
         }
 
         if 'attachments_only' not in kwargs:
-            with open(pjoin('dump', 'dialogs', '{}_{id}.txt'.format('_'.join(dialog_name.split(' ')), id=did)), 'w', encoding='utf-8') as f:
+            with open(pjoin(folder, f'{fn}.txt'), 'w', encoding='utf-8') as f:
                 count = len(history['items'])
                 print('    [сохранение сообщений]')
                 print('      {}/{}'.format(0, count), end='\r')
@@ -749,8 +765,7 @@ def dump_messages(**kwargs):
                 print('\x1b[2K      {}/{}'.format(i, count), end='\r')
 
         if settings['SAVE_DIALOG_ATTACHMENTS'] or ('attachments_only' in kwargs and kwargs['attachments_only']):
-            at_folder = pjoin(folder, '{}_{id}'.format(
-                '_'.join(dialog_name.split(' ')), id=did))
+            at_folder = pjoin(folder, fn)
             makedirs(at_folder, exist_ok=True)
 
             print()
@@ -786,7 +801,7 @@ def dump_messages(**kwargs):
                 print('      .../{}'.format(len(videos['items'])), end='\r')
 
                 try:
-                    with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
+                    with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
                         pool.starmap(download_video, zip(
                             videos['items'], itertools.repeat(af)))
                 except MaybeEncodingError:
@@ -827,7 +842,6 @@ def dump_liked_posts():
     print('[получение постов]')
 
     posts = vk.execute.posts(basic_offset=0)
-    i = 0
     for i in range(posts[0]//1000):
         res = vk.execute.posts(basic_offset=(i+1)*1000)
         posts[1].extend(res[1])
@@ -915,11 +929,12 @@ def dump_all():
         d()
         print()
 
+
 # GUI funcs
 def clear(): return print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
 
-def lprint(*args, **kwargs):
+def print_slow(*args, **kwargs):
     print('\x1b[?25l' if ANSI_AVAILABLE else '')
     for s in args:
         if (s.find('\x1b') == -1) and ('slow' in kwargs) and (kwargs['slow']):
@@ -932,7 +947,7 @@ def lprint(*args, **kwargs):
     print('\x1b[?25h' if ANSI_AVAILABLE else '')
 
 
-def cprint(msg, **kwargs):
+def print_center(msg, **kwargs):
     if isinstance(msg, list):
         for i in range(len(msg)):
             if not 'offset' in kwargs:
@@ -941,29 +956,29 @@ def cprint(msg, **kwargs):
                 'color' in kwargs and kwargs['color'][i]) else mods['nc']
             if 'mod' in kwargs and kwargs['mod'][i]:
                 kwargs['color'][i] += mods[kwargs['mod'][i]]
-            lprint(kwargs['color'][i]+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg[i])/2),
-                                                             y=int(h/2-len(msg)/2+i)+1-kwargs['offset']),
-                   msg[i], mods['nc'], **kwargs)
+            print_slow(kwargs['color'][i] + '\x1b[{y};{x}H'.format(x=int(w / 2 - len(msg[i]) / 2),
+                                                                   y=int(h/2-len(msg)/2+i)+1-kwargs['offset']),
+                       msg[i], mods['nc'], **kwargs)
 
     else:
-        if not 'offset' in kwargs:
+        if 'offset' not in kwargs:
             kwargs['offset'] = 0
         kwargs['color'] = colors[kwargs['color']] if 'color' in kwargs else mods['nc']
         if 'mod' in kwargs:
             kwargs['color'] += mods[kwargs['mod']]
 
-        lprint(kwargs['color']+'\x1b[{y};{x}H'.format(x=int(w/2-len(msg)/2),
-                                                      y=int(h/2-(len(msg.split('\n'))/2)+1-kwargs['offset'])),
-               msg, mods['nc'], **kwargs)
+        print_slow(kwargs['color'] + '\x1b[{y};{x}H'.format(x=int(w / 2 - len(msg) / 2),
+                                                            y=int(h/2-(len(msg.split('\n'))/2)+1-kwargs['offset'])),
+                   msg, mods['nc'], **kwargs)
 
 
 def welcome():
     ANSI_AVAILABLE and stdout.write('\x1b]0;{}\x07'.format(NAME))
     clear()
-    cprint([NAME, 'v'+VERSION],
-           color=['green', None],
-           mod=['bold', None],
-           slow=True, delay=1/50)
+    print_center([NAME, 'v' + VERSION],
+                 color=['green', None],
+                 mod=['bold', None],
+                 slow=True, delay=1/50)
 
     print('\x1b[?25l' if ANSI_AVAILABLE else '')
     sleep(2)
@@ -972,8 +987,8 @@ def welcome():
 
 def goodbye():
     clear()
-    cprint(['Спасибо за использование скрипта :з', '', 'Made with ♥ by hikiko4ern'],
-           color=['green', None, 'red'], mod=['bold', None, 'bold'], offset=-1)
+    print_center(['Спасибо за использование скрипта :з', '', 'Made with ♥ by hikiko4ern'],
+                 color=['green', None, 'red'], mod=['bold', None, 'bold'], offset=-1)
     ANSI_AVAILABLE and print('\x1b[?25h')
     raise SystemExit
 
@@ -1059,7 +1074,7 @@ def menu():
         else:
             raise IndexError
     except IndexError:
-        cprint('Выберите действие из доступных', color='red', mode='bold')
+        print_center('Выберите действие из доступных', color='red', mode='bold')
         sleep(2)
         clear()
         menu()
@@ -1130,7 +1145,7 @@ def settings_screen():
 
         settings_screen()
     except IndexError:
-        cprint('Выберите одну из доступных настроек', color='red', mode='bold')
+        print_center('Выберите одну из доступных настроек', color='red', mode='bold')
         sleep(2)
         clear()
         settings_screen()
@@ -1141,7 +1156,6 @@ def settings_screen():
 
 
 if __name__ == '__main__':
-    from pprint import pprint
     init()
 
     if args.dump:
