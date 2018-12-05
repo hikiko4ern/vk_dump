@@ -24,8 +24,8 @@ from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.7.2'
-API_VERSION = '5.87'
+VERSION = '0.7.3'
+API_VERSION = '5.92'
 
 parser = argparse.ArgumentParser(description=NAME)
 parser.add_argument('--version', action='version', version=VERSION)
@@ -474,6 +474,27 @@ def dump_messages(**kwargs):
                 for a in res['attachments']['docs']:
                     r['attachments']['docs'].append(a)
 
+        if ('reply_message' in msg) and msg['reply_message']:
+            res = message_handler(msg['reply_message'])
+
+            if 'attachments_only' not in kwargs:
+                if len(res['messages']) > 0:
+                    if msg['reply_message']['from_id'] not in users:
+                        users_add(msg['reply_message']['from_id'])
+
+                    r['messages'].append('{name}> {}'.format(
+                        res['messages'][0], name=users.get(msg['reply_message']['from_id'])['name']))
+                    for m in res['messages'][1:]:
+                        r['messages'].append('{name}> {}'.format(
+                            m, name=' '*len(users.get(msg['reply_message']['from_id'])['name'])))
+
+            for a in res['attachments']['photos']:
+                r['attachments']['photos'].append(a)
+            for a in res['attachments']['video_ids']:
+                r['attachments']['video_ids'].append(a)
+            for a in res['attachments']['docs']:
+                r['attachments']['docs'].append(a)
+
         if len(msg['text']) > 0:
             for line in msg['text'].split('\n'):
                 r['messages'].append(line)
@@ -676,17 +697,16 @@ def dump_messages(**kwargs):
 
         fn = '{}_{id}'.format('_'.join(dialog_name.split(' ')), id=did)
         for n in listdir(folder):
-            if str(did) in n:
+            if str(did) == n.split('.txt')[0].split('_')[-1]:
                 if settings['KEEP_DIALOG_NAMES']:
                     fn = n.split('.txt')[0]
                 else:
                     shutil.move(pjoin(folder, n), pjoin(folder, '{}_{id}'.format('_'.join(dialog_name.split(' ')),
                                                                                  id=did)+('.txt' if '.txt' in n else '')))
 
-        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(f'(as {fn})' if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
+        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
         print('    [кэширование]')
         print('\x1b[2K      0/???', end='\r')
-
 
         history = vk_tools.get_all(
             method='messages.getHistory',
