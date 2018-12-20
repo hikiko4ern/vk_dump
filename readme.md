@@ -3,7 +3,7 @@
 pip3 install -r requirements.txt
 ```
 
-Если Вы используете версию Windows ниже 10, необходимо дополнительно установить пакет `colorama`:
+Если Вы используете Windows ниже 10 версии, необходимо дополнительно установить пакет `colorama`:
 ```
 pip3 install colorama
 ```
