@@ -6,7 +6,7 @@ from configparser import ConfigParser
 from os import cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
 from os.path import exists, join as pjoin
 from sys import stdout
-from time import sleep
+from time import sleep, ctime, strftime, strptime
 
 import urllib3
 from urllib.request import urlopen
@@ -24,7 +24,7 @@ from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.7.3'
+VERSION = '0.7.4'
 API_VERSION = '5.92'
 
 parser = argparse.ArgumentParser(description=NAME)
@@ -45,7 +45,7 @@ settings = {
     'MEMORY_CONFIG': True,  # сохранять конфиг в память вместо файла
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
-    'POOL_PROCESSES': 4*AVAILABLE_THREADS,  # макс. число создаваемых процессов
+    'POOL_PROCESSES': 4 * AVAILABLE_THREADS,  # макс. число создаваемых процессов
     'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
     'KEEP_DIALOG_NAMES': True,
     'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
@@ -137,7 +137,7 @@ def log(*msg):
     if not args.dump:
         clear()
         print_center(msg[0] if msg else '[для продолжения необходимо войти]',
-                     color='red', mod='bold', offset=2, delay=1/50)
+                     color='red', mod='bold', offset=2, delay=1 / 50)
 
     try:
         if args.token:
@@ -200,7 +200,8 @@ def download(obj, folder, **kwargs):
         kwargs = obj
 
     if 'name' in kwargs:
-        fn = '_'.join(kwargs['name'].split(' ')) if settings['REPLACE_SPACES'] else kwargs['name']
+        fn = '_'.join(kwargs['name'].split(
+            ' ')) if settings['REPLACE_SPACES'] else kwargs['name']
         if 'ext' in kwargs:
             if fn.split('.')[-1] != kwargs['ext']:
                 fn += '.{}'.format(kwargs['ext'])
@@ -247,11 +248,12 @@ def download_video(v, folder):
         data = urlopen(url).read()
         try:
             download(
-                research(b'https://cs.*vkuservideo.*' +
-                         str(min(v['height'], v['width']) if 'width' in v else v['height'])
-                         .encode()+b'.mp4', data).group(0).decode(),
+                research(b'https://cs.*vkuservideo.*'
+                         + str(min(v['height'], v['width'])
+                             if 'width' in v else v['height'])
+                         .encode() + b'.mp4', data).group(0).decode(),
                 folder,
-                name=v['title']+'_'+str(v['id']),
+                name=v['title'] + '_' + str(v['id']),
                 ext='mp4'
             )
         except AttributeError:
@@ -305,7 +307,8 @@ def dump_photos():
             print('    .../{}'.format(photos['count']), end='\r')
             with Pool(settings['POOL_PROCESSES']) as pool:
                 pool.starmap(download, zip(objs, itertools.repeat(folder)))
-            print('\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
+            print(
+                '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
 
 
 def dump_audio():
@@ -370,8 +373,10 @@ def dump_video():
 
             print('    .../{}'.format(video['count']), end='\r')
             with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
-                pool.starmap(download_video, zip(objs, itertools.repeat(folder)))
-            print('\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
+                pool.starmap(download_video, zip(
+                    objs, itertools.repeat(folder)))
+            print(
+                '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
 
 
 def dump_docs():
@@ -391,7 +396,7 @@ def dump_docs():
         for d in docs['items']:
             objs.append({
                 'url': d['url'],
-                'name': d['title']+'_'+str(d['id']),
+                'name': d['title'] + '_' + str(d['id']),
                 'ext': d['ext']
             })
 
@@ -416,7 +421,8 @@ def dump_messages(**kwargs):
 
             elif id < 0:
                 # Group: {..., name, id, ...} => {-%id%: {name: 'name', length: len(name) }
-                g = vk.messages.getConversationsById(peer_ids=id, extended=1)['groups'][0]
+                g = vk.messages.getConversationsById(
+                    peer_ids=id, extended=1)['groups'][0]
                 name = g['name']
                 users[-g['id']] = {'name': name, 'length': len(name)}
 
@@ -448,7 +454,8 @@ def dump_messages(**kwargs):
             'attachments': {
                 'photos': [],
                 'video_ids': [],
-                'docs': []
+                'docs': [],
+                'audio_messages': []
             }
         }
 
@@ -465,14 +472,11 @@ def dump_messages(**kwargs):
                             res['messages'][0], name=users.get(fwd['from_id'])['name']))
                         for m in res['messages'][1:]:
                             r['messages'].append('{name}> {}'.format(
-                                m, name=' '*len(users.get(fwd['from_id'])['name'])))
+                                m, name=' ' * len(users.get(fwd['from_id'])['name'])))
 
-                for a in res['attachments']['photos']:
-                    r['attachments']['photos'].append(a)
-                for a in res['attachments']['video_ids']:
-                    r['attachments']['video_ids'].append(a)
-                for a in res['attachments']['docs']:
-                    r['attachments']['docs'].append(a)
+                for tp in res['attachments']:
+                    for a in res['attachments'][tp]:
+                        r['attachments'][tp].append(a)
 
         if ('reply_message' in msg) and msg['reply_message']:
             res = message_handler(msg['reply_message'])
@@ -486,14 +490,11 @@ def dump_messages(**kwargs):
                         res['messages'][0], name=users.get(msg['reply_message']['from_id'])['name']))
                     for m in res['messages'][1:]:
                         r['messages'].append('{name}> {}'.format(
-                            m, name=' '*len(users.get(msg['reply_message']['from_id'])['name'])))
+                            m, name=' ' * len(users.get(msg['reply_message']['from_id'])['name'])))
 
-            for a in res['attachments']['photos']:
-                r['attachments']['photos'].append(a)
-            for a in res['attachments']['video_ids']:
-                r['attachments']['video_ids'].append(a)
-            for a in res['attachments']['docs']:
-                r['attachments']['docs'].append(a)
+            for tp in res['attachments']:
+                for a in res['attachments'][tp]:
+                    r['attachments'][tp].append(a)
 
         if len(msg['text']) > 0:
             for line in msg['text'].split('\n'):
@@ -508,15 +509,16 @@ def dump_messages(**kwargs):
                         if 'action' not in msg:
                             r['messages'].append('[фото: {url}]'.format(
                                 url=at[tp]['sizes'][-1]['url']))
-                            r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
+                            r['attachments']['photos'].append(
+                                at[tp]['sizes'][-1]['url'])
                     elif tp == 'video':
                         r['messages'].append(
                             '[видео: vk.com/video{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
                         r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
                             oid=at[tp]['owner_id'],
                             id=at[tp]['id'],
-                            access_key='_' +
-                            at[tp]['access_key'] if 'access_key' in at[tp] else ''
+                            access_key='_'
+                            + at[tp]['access_key'] if 'access_key' in at[tp] else ''
                         ))
                     elif tp == 'audio':
                         r['messages'].append('[аудио: {artist} - {title}]'.format(artist=at[tp]
@@ -526,7 +528,7 @@ def dump_messages(**kwargs):
                             '[документ: vk.com/doc{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
                         r['attachments']['docs'].append({
                             'url': at[tp]['url'],
-                            'name': at[tp]['title']+'_'+str(at[tp]['id']),
+                            'name': at[tp]['title'] + '_' + str(at[tp]['id']),
                             'ext': at[tp]['ext']
                         })
                     elif tp == 'link':
@@ -561,31 +563,49 @@ def dump_messages(**kwargs):
                         r['messages'].append('[стикер: {url}]'.format(
                             url=at[tp]['images'][-1]['url']))
                     elif tp == 'gift':
-                        r['messages'].append('[подарок: {id}]'.format(id=at[tp]['id']))
+                        r['messages'].append(
+                            '[подарок: {id}]'.format(id=at[tp]['id']))
                     elif tp == 'graffiti':
-                        r['messages'].append('[граффити: {url}]'.format(url=at[tp]['url']))
+                        r['messages'].append(
+                            '[граффити: {url}]'.format(url=at[tp]['url']))
                     elif tp == 'audio_message':
                         r['messages'].append(
                             '[голосовое сообщение: {url}]'.format(url=at[tp]['link_mp3']))
+                        r['attachments']['audio_messages'].append({
+                            'url': at[tp]['link_mp3'],
+                            'name': '{from_id}_{date}_{id}'.format(
+                                from_id=str(msg['from_id']),
+                                date=strftime('%Y_%m_%d', strptime(ctime(msg['date']))),
+                                id=str(at[tp]['id'])),
+                            'ext': 'mp3'})
                     else:
-                        r['messages'].append('[вложение с типом "{tp}"]'.format(tp=tp))
-
+                        r['messages'].append(
+                            '[вложение с типом "{tp}"]'.format(tp=tp))
                 else:
                     if tp == 'photo':
-                        r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
+                        r['attachments']['photos'].append(
+                            at[tp]['sizes'][-1]['url'])
                     elif tp == 'video':
                         r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
                             oid=at[tp]['owner_id'],
                             id=at[tp]['id'],
-                            access_key='_' +
-                            at[tp]['access_key'] if 'access_key' in at[tp] else ''
+                            access_key='_'
+                            + at[tp]['access_key'] if 'access_key' in at[tp] else ''
                         ))
                     elif tp == 'doc':
                         r['attachments']['docs'].append({
                             'url': at[tp]['url'],
-                            'name': at[tp]['title']+'_'+str(at[tp]['id']),
+                            'name': at[tp]['title'] + '_' + str(at[tp]['id']),
                             'ext': at[tp]['ext']
                         })
+                    elif tp == 'audio_message':
+                        r['attachments']['audio_messages'].append({
+                            'url': at[tp]['link_mp3'],
+                            'name': '{from_id}_{date}_{id}'.format(
+                                from_id=str(msg['from_id']),
+                                date=strftime('%Y_%m_%d', strptime(ctime(msg['date']))),
+                                id=str(at[tp]['id'])),
+                            'ext': 'mp3'})
 
         if 'action' in msg and msg['action']:
             """
@@ -600,7 +620,8 @@ def dump_messages(**kwargs):
                     try:
                         users_add(act['member_id'])
                     except Exception:
-                        users[act['member_id']] = {'name': r'{unknown user}', 'length': 3}
+                        users[act['member_id']] = {
+                            'name': r'{unknown user}', 'length': 3}
 
                 if tp == 'chat_photo_update':
                     r['messages'].append('[{member} обновил фотографию беседы ({url})]'.format(
@@ -671,7 +692,8 @@ def dump_messages(**kwargs):
             'fields': 'first_name, last_name, name'
         })
 
-    print('\x1b[2K  {}/{}'.format(len(conversations['items']), conversations['count']))
+    print('\x1b[2K  {}/{}'.format(len(conversations['items']),
+                                  conversations['count']))
 
     users = {}
 
@@ -702,9 +724,10 @@ def dump_messages(**kwargs):
                     fn = n.split('.txt')[0]
                 else:
                     shutil.move(pjoin(folder, n), pjoin(folder, '{}_{id}'.format('_'.join(dialog_name.split(' ')),
-                                                                                 id=did)+('.txt' if '.txt' in n else '')))
+                                                                                 id=did) + ('.txt' if '.txt' in n else '')))
 
-        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
+        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(
+            fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
         print('    [кэширование]')
         print('\x1b[2K      0/???', end='\r')
 
@@ -722,7 +745,8 @@ def dump_messages(**kwargs):
         attachments = {
             'photos': [],
             'video_ids': [],
-            'docs': []
+            'docs': [],
+            'audio_messages': []
         }
 
         if 'attachments_only' not in kwargs:
@@ -738,9 +762,9 @@ def dump_messages(**kwargs):
                     if m['from_id'] not in users:
                         users_add(m['from_id'])
 
-                    hold = ' '*(users.get(m['from_id'])['length']+2)
+                    hold = ' ' * (users.get(m['from_id'])['length'] + 2)
                     msg = hold if (prev and prev == m['from_id']) else users.get(
-                        m['from_id'])['name']+': '
+                        m['from_id'])['name'] + ': '
 
                     res = message_handler(m)
                     if res['messages']:
@@ -751,15 +775,10 @@ def dump_messages(**kwargs):
                         msg += '\n'
 
                     if settings['SAVE_DIALOG_ATTACHMENTS']:
-                        for a in res['attachments']['photos']:
-                            if a not in attachments['photos']:
-                                attachments['photos'].append(a)
-                        for a in res['attachments']['video_ids']:
-                            if a not in attachments['video_ids']:
-                                attachments['video_ids'].append(a)
-                        for a in res['attachments']['docs']:
-                            if a not in attachments['docs']:
-                                attachments['docs'].append(a)
+                        for tp in res['attachments']:
+                            for a in res['attachments'][tp]:
+                                if a not in attachments[tp]:
+                                    attachments[tp].append(a)
 
                     f.write(msg)
                     prev = m['from_id']
@@ -770,17 +789,13 @@ def dump_messages(**kwargs):
             print('      {}/{}'.format(0, count), end='\r')
 
             for i in range(count):
-                res = message_handler(history['items'][i], attachments_only=True)
+                res = message_handler(
+                    history['items'][i], attachments_only=True)
 
-                for a in res['attachments']['photos']:
-                    if a not in attachments['photos']:
-                        attachments['photos'].append(a)
-                for a in res['attachments']['video_ids']:
-                    if a not in attachments['video_ids']:
-                        attachments['video_ids'].append(a)
-                for a in res['attachments']['docs']:
-                    if a not in attachments['docs']:
-                        attachments['docs'].append(a)
+                for tp in res['attachments']:
+                    for a in res['attachments'][tp]:
+                        if a not in attachments[tp]:
+                            attachments[tp].append(a)
 
                 print('\x1b[2K      {}/{}'.format(i, count), end='\r')
 
@@ -795,7 +810,8 @@ def dump_messages(**kwargs):
                 makedirs(af, exist_ok=True)
 
                 print('    [сохранение фото]')
-                print('      .../{}'.format(len(attachments['photos'])), end='\r')
+                print(
+                    '      .../{}'.format(len(attachments['photos'])), end='\r')
 
                 with Pool(settings['POOL_PROCESSES']) as pool:
                     pool.starmap(download, zip(
@@ -827,14 +843,16 @@ def dump_messages(**kwargs):
                 except MaybeEncodingError:
                     None
 
-                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]), len(videos['items'])))
+                print(
+                    '\x1b[2K      {}/{}'.format(len(next(walk(af))[2]), len(videos['items'])))
 
             if attachments['docs']:
                 af = pjoin(at_folder, 'Документы')
                 makedirs(af, exist_ok=True)
 
                 print('    [сохранение документов]')
-                print('      .../{}'.format(len(attachments['docs'])), end='\r')
+                print(
+                    '      .../{}'.format(len(attachments['docs'])), end='\r')
 
                 with Pool(settings['POOL_PROCESSES']) as pool:
                     pool.starmap(download, zip(
@@ -842,6 +860,21 @@ def dump_messages(**kwargs):
 
                 print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
                                                   len(attachments['docs'])))
+
+            if attachments['audio_messages']:
+                af = pjoin(at_folder, 'Голосовые')
+                makedirs(af, exist_ok=True)
+
+                print('    [сохранение голосовых сообщений]')
+                print(
+                    '      .../{}'.format(len(attachments['audio_messages'])), end='\r')
+
+                with Pool(settings['POOL_PROCESSES']) as pool:
+                    pool.starmap(download, zip(
+                        attachments['audio_messages'], itertools.repeat(af)))
+
+                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
+                                                  len(attachments['audio_messages'])))
 
         print()
         print()
@@ -862,8 +895,8 @@ def dump_liked_posts():
     print('[получение постов]')
 
     posts = vk.execute.posts(basic_offset=0)
-    for i in range(posts[0]//1000):
-        res = vk.execute.posts(basic_offset=(i+1)*1000)
+    for i in range(posts[0] // 1000):
+        res = vk.execute.posts(basic_offset=(i + 1) * 1000)
         posts[1].extend(res[1])
         del res
 
@@ -893,8 +926,8 @@ def dump_liked_posts():
                     video_ids.append('{oid}_{id}{access_key}'.format(
                         oid=at['video']['owner_id'],
                         id=at['video']['id'],
-                        access_key='_' +
-                        at['video']['access_key'] if 'access_key' in at['video'] else ''
+                        access_key='_'
+                        + at['video']['access_key'] if 'access_key' in at['video'] else ''
                     ))
                 elif at['type'] == 'doc':
                     obj = {
@@ -923,7 +956,8 @@ def dump_liked_posts():
         if photos:
             print('  [фото ({})]'.format(len(photos)))
             with Pool(settings['POOL_PROCESSES']) as pool:
-                pool.starmap(download, zip(photos, itertools.repeat(folder_photos)))
+                pool.starmap(download, zip(
+                    photos, itertools.repeat(folder_photos)))
     except MaybeEncodingError:
         None
 
@@ -931,7 +965,8 @@ def dump_liked_posts():
         if videos:
             print('  [видео ({}/{})]'.format(len(videos['items']), len(video_ids)))
             with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
-                pool.starmap(download_video, zip(videos['items'], itertools.repeat(folder_videos)))
+                pool.starmap(download_video, zip(
+                    videos['items'], itertools.repeat(folder_videos)))
     except MaybeEncodingError:
         None
 
@@ -939,7 +974,8 @@ def dump_liked_posts():
         if docs:
             print('  [документы ({})]'.format(len(docs)))
             with Pool(settings['POOL_PROCESSES']) as pool:
-                pool.starmap(download, zip(docs, itertools.repeat(folder_docs)))
+                pool.starmap(download, zip(
+                    docs, itertools.repeat(folder_docs)))
     except MaybeEncodingError:
         None
 
@@ -961,7 +997,7 @@ def print_slow(*args, **kwargs):
             for ch in s:
                 stdout.write(ch)
                 stdout.flush()
-                sleep(kwargs['delay'] if 'delay' in kwargs else 1/50)
+                sleep(kwargs['delay'] if 'delay' in kwargs else 1 / 50)
         else:
             print(s, end='')
     print('\x1b[?25h' if ANSI_AVAILABLE else '')
@@ -977,18 +1013,19 @@ def print_center(msg, **kwargs):
             if 'mod' in kwargs and kwargs['mod'][i]:
                 kwargs['color'][i] += mods[kwargs['mod'][i]]
             print_slow(kwargs['color'][i] + '\x1b[{y};{x}H'.format(x=int(w / 2 - len(msg[i]) / 2),
-                                                                   y=int(h/2-len(msg)/2+i)+1-kwargs['offset']),
+                                                                   y=int(h / 2 - len(msg) / 2 + i) + 1 - kwargs['offset']),
                        msg[i], mods['nc'], **kwargs)
 
     else:
         if 'offset' not in kwargs:
             kwargs['offset'] = 0
-        kwargs['color'] = colors[kwargs['color']] if 'color' in kwargs else mods['nc']
+        kwargs['color'] = colors[kwargs['color']
+                                 ] if 'color' in kwargs else mods['nc']
         if 'mod' in kwargs:
             kwargs['color'] += mods[kwargs['mod']]
 
         print_slow(kwargs['color'] + '\x1b[{y};{x}H'.format(x=int(w / 2 - len(msg) / 2),
-                                                            y=int(h/2-(len(msg.split('\n'))/2)+1-kwargs['offset'])),
+                                                            y=int(h / 2 - (len(msg.split('\n')) / 2) + 1 - kwargs['offset'])),
                    msg, mods['nc'], **kwargs)
 
 
@@ -998,7 +1035,7 @@ def welcome():
     print_center([NAME, 'v' + VERSION],
                  color=['green', None],
                  mod=['bold', None],
-                 slow=True, delay=1/50)
+                 slow=True, delay=1 / 50)
 
     print('\x1b[?25l' if ANSI_AVAILABLE else '')
     sleep(2)
@@ -1017,17 +1054,19 @@ def logInfo():
     global account, args
 
     log_info = [
-        'Login: \x1b[1;36m{}\x1b[0m'.format(account['phone'] if args.token else login),
-        'Name: \x1b[1;36m{fn} {ln}\x1b[0m'.format(fn=account['first_name'], ln=account['last_name'])
+        'Login: \x1b[1;36m{}\x1b[0m'.format(
+            account['phone'] if args.token else login),
+        'Name: \x1b[1;36m{fn} {ln}\x1b[0m'.format(
+            fn=account['first_name'], ln=account['last_name'])
     ]
     ln = 0
     for l in log_info:
         ln = max(len(l), ln)
 
-    print('\x1b[1;31m'+'-'*(ln-7), end='\x1b[0m\n')
+    print('\x1b[1;31m' + '-' * (ln - 7), end='\x1b[0m\n')
     for l in log_info:
-        print('\x1b[31m>\x1b[0m '+l)
-    print('\x1b[1;31m'+'-'*(ln-7), end='\x1b[0m\n')
+        print('\x1b[31m>\x1b[0m ' + l)
+    print('\x1b[1;31m' + '-' * (ln - 7), end='\x1b[0m\n')
 
 
 def menu():
@@ -1048,15 +1087,16 @@ def menu():
     ]
 
     if args.token:
-        actions.pop(actions.index(dump_audio)-1)
+        actions.pop(actions.index(dump_audio) - 1)
         actions.pop(actions.index(dump_audio))
 
     print('Дамп данных:\n')
 
-    for i in range(int(len(actions)/2)):
+    for i in range(int(len(actions) / 2)):
         print('{clr}[{ind}]{nc} {name}'.format(
-            ind=i+1, name=actions[i*2], clr=colors['blue'], nc=mods['nc']))
-    print('\n{clr}[F]{nc} Все данные'.format(clr=colors['blue'], nc=mods['nc']))
+            ind=i + 1, name=actions[i * 2], clr=colors['blue'], nc=mods['nc']))
+    print('\n{clr}[F]{nc} Все данные'.format(
+        clr=colors['blue'], nc=mods['nc']))
     print('\n{clr}[S]{nc} Настройки'.format(clr=colors['blue'], nc=mods['nc']))
     print('{clr}[Q]{nc} Выход'.format(clr=colors['blue'], nc=mods['nc']))
 
@@ -1070,11 +1110,12 @@ def menu():
             elif choice == 's':
                 choice = settings_screen
             elif choice == 'f':
-                choice = [actions[i] for i in range(len(actions)) if i % 2 == 1]
+                choice = [actions[i]
+                          for i in range(len(actions)) if i % 2 == 1]
             else:
-                if int(choice) not in range(1, len(actions)+1):
+                if int(choice) not in range(1, len(actions) + 1):
                     raise IndexError
-                choice = actions[(int(choice)-1)*2+1]
+                choice = actions[(int(choice) - 1) * 2 + 1]
 
         if choice is exit:
             goodbye()
@@ -1089,12 +1130,13 @@ def menu():
                 print('\n{clr}Сохранение завершено :з{nc}'.format(
                     clr=colors['green'], nc=mods['nc']))
                 input('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
-                    clr=colors['cyan']+mods['bold'], nc=mods['nc']))
+                    clr=colors['cyan'] + mods['bold'], nc=mods['nc']))
             menu()
         else:
             raise IndexError
     except IndexError:
-        print_center('Выберите действие из доступных', color='red', mode='bold')
+        print_center('Выберите действие из доступных',
+                     color='red', mode='bold')
         sleep(2)
         clear()
         menu()
@@ -1119,7 +1161,7 @@ def settings_screen():
             value = 'Да' if value else 'Нет'
 
         print('{ind_clr}[{ind}]{nc} {name}: {clr}{value}{nc}'.format(
-            ind=i+1,
+            ind=i + 1,
             name=settings_names[s],
             value=value,
             ind_clr=colors['blue'],
@@ -1137,10 +1179,10 @@ def settings_screen():
         choice = int(input('> '))
         if choice == 0:
             menu()
-        elif choice not in range(1, len(settings)+1):
+        elif choice not in range(1, len(settings) + 1):
             raise IndexError()
         else:
-            s = [s for s in settings][choice-1]
+            s = [s for s in settings][choice - 1]
             new = None
             if isinstance(settings[s], bool):
                 settings[s] = not settings[s]
@@ -1165,7 +1207,8 @@ def settings_screen():
 
         settings_screen()
     except IndexError:
-        print_center('Выберите одну из доступных настроек', color='red', mode='bold')
+        print_center('Выберите одну из доступных настроек',
+                     color='red', mode='bold')
         sleep(2)
         clear()
         settings_screen()
