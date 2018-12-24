@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-
 import argparse
 from configparser import ConfigParser
 
-from os import cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
+from os import getcwd, cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
 from os.path import exists, join as pjoin
 from sys import stdout
-from time import sleep, ctime, strftime, strptime
+from time import sleep, gmtime, strftime
 
 import urllib3
 from urllib.request import urlopen
@@ -24,7 +23,8 @@ from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.7.4'
+VERSION = '0.8.0'
+DESCRIPTION = 'Now with AutoUpdate!'
 API_VERSION = '5.92'
 
 parser = argparse.ArgumentParser(description=NAME)
@@ -47,7 +47,7 @@ settings = {
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
     'POOL_PROCESSES': 4 * AVAILABLE_THREADS,  # макс. число создаваемых процессов
     'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
-    'KEEP_DIALOG_NAMES': True,
+    'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога
     'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
 }
 
@@ -63,6 +63,31 @@ settings_names = {
 
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 INVALID_POSIX_CHARS = ['$']
+
+#
+def update():
+    clear()
+    print_center([NAME+' : '+VERSION, '', 'Проверка на наличие обновлений...'],
+                 color=['green', None, 'yellow'])
+
+    from requests import get
+    res = get('https://api.github.com/repos/hikiko4ern/vk_dump/releases/latest').json()
+    if 'url' in res:
+        cv = VERSION.split('.')
+        nv = res['tag_name'].split('v')[1].split('.')
+        if (nv[0] > cv[0]) or (nv[0] == cv[0] and nv[1] > cv[1]) or (nv[0] == cv[0] and nv[1] == cv[1] and nv[2] > cv[2]):
+            print_center('Новая версия найдена ({})'.format(
+                res['tag_name']), color='green', mod='bold', offset=-2)
+            for a in res['assets']:
+                if a['name'] == 'dump.py':
+                    if download(a['browser_download_url'], getcwd(), force=True):
+                        print_center(['Обновление успешно!', 'Перезапустите программу вручную :3'],
+                                     color=['green', 'yellow'], mod=['bold', 'bold'], offset=-5)
+                        raise SystemExit
+                    else:
+                        print_center(['Не удалось обновить', 'Скачайте и замените dump.py вручную', 'https://github.com/hikiko4ern/vk_dump/releases/latest'],
+                                     color=['red', 'yellow', None], mod=['bold', 'bold', None], offset=-3)
+                        raise SystemExit
 
 
 #
@@ -84,6 +109,8 @@ def init():
     elif osname == 'posix':
         INVALID_CHARS += INVALID_POSIX_CHARS
         ANSI_AVAILABLE = True
+
+    ANSI_AVAILABLE and stdout.write('\x1b]0;{}\x07'.format(NAME))
 
     config = ConfigParser()
     if not config.read('settings.ini'):
@@ -217,11 +244,12 @@ def download(obj, folder, **kwargs):
     for c in INVALID_CHARS:
         fn = fn.replace(c, settings['REPLACE_CHAR'])
 
-    if not exists(pjoin(folder, fn)):
+    if not exists(pjoin(folder, fn)) or ('force' in kwargs and kwargs['force']):
         try:
             r = requests.get(url, stream=True, timeout=(30, 5))
             with open(pjoin(folder, fn), 'wb') as f:
                 shutil.copyfileobj(r.raw, f)
+            return True
         except requests.exceptions.ConnectionError:
             return False
         except requests.exceptions.ReadTimeout:
@@ -250,7 +278,7 @@ def download_video(v, folder):
             download(
                 research(b'https://cs.*vkuservideo.*'
                          + str(min(v['height'], v['width'])
-                             if 'width' in v else v['height'])
+                               if 'width' in v else v['height'])
                          .encode() + b'.mp4', data).group(0).decode(),
                 folder,
                 name=v['title'] + '_' + str(v['id']),
@@ -410,7 +438,7 @@ def dump_messages(**kwargs):
     def users_add(id):
         try:
             if id > 0:
-                # User: {..., first_name, last_name, id, ...} => {id:{name: 'first_name + last_name', length: len(name)}
+                # User: {..., first_name, last_name, id, ...} -> {id:{name: 'first_name + last_name', length: len(name)}
                 u = vk.users.get(user_ids=id)[0]
                 if ('deactivated' in u) and (u['deactivated'] == 'deleted') and (u['first_name'] == 'DELETED'):
                     name = 'DELETED'
@@ -420,7 +448,7 @@ def dump_messages(**kwargs):
                     users[u['id']] = {'name': name, 'length': len(name)}
 
             elif id < 0:
-                # Group: {..., name, id, ...} => {-%id%: {name: 'name', length: len(name) }
+                # Group: {..., name, id, ...} -> {-%id%: {name: 'name', length: len(name) }
                 g = vk.messages.getConversationsById(
                     peer_ids=id, extended=1)['groups'][0]
                 name = g['name']
@@ -428,6 +456,14 @@ def dump_messages(**kwargs):
 
         except Exception:
             users[id] = {'name': r'{unknown user}', 'length': 3}
+
+    def time_handler(time):
+        # seconds -> human readable format
+        m = {'january': 'января', 'february': 'февраля', 'march': 'марта', 'april': 'апреля', 'may': 'мая', 'june': 'июня',
+             'july': 'июля', 'august': 'августа', 'september': 'сентября', 'october': 'октября', 'november': 'ноября', 'december': 'декабря'}
+        t = strftime('%d %B %Y', gmtime(time)).lower().split(' ')
+        t[1] = '{'+t[1]+'}'
+        return ' '.join(t).format_map(m)
 
     def message_handler(msg, **kwargs):
         """
@@ -450,6 +486,7 @@ def dump_messages(**kwargs):
                     - vk.com/dev/objects/attachments_w
         """
         r = {
+            'date': strftime('[%H:%M]', gmtime(msg['date'])),
             'messages': [],
             'attachments': {
                 'photos': [],
@@ -575,7 +612,7 @@ def dump_messages(**kwargs):
                             'url': at[tp]['link_mp3'],
                             'name': '{from_id}_{date}_{id}'.format(
                                 from_id=str(msg['from_id']),
-                                date=strftime('%Y_%m_%d', strptime(ctime(msg['date']))),
+                                date=strftime('%Y_%m_%d', gmtime(msg['date'])),
                                 id=str(at[tp]['id'])),
                             'ext': 'mp3'})
                     else:
@@ -603,7 +640,7 @@ def dump_messages(**kwargs):
                             'url': at[tp]['link_mp3'],
                             'name': '{from_id}_{date}_{id}'.format(
                                 from_id=str(msg['from_id']),
-                                date=strftime('%Y_%m_%d', strptime(ctime(msg['date']))),
+                                date=strftime('%Y_%m_%d', gmtime(msg['date'])),
                                 id=str(at[tp]['id'])),
                             'ext': 'mp3'})
 
@@ -755,6 +792,7 @@ def dump_messages(**kwargs):
                 print('    [сохранение сообщений]')
                 print('      {}/{}'.format(0, count), end='\r')
                 prev = None
+                prev_date = None
 
                 for i in range(count):
                     m = history['items'][i]
@@ -762,15 +800,19 @@ def dump_messages(**kwargs):
                     if m['from_id'] not in users:
                         users_add(m['from_id'])
 
+                    res = message_handler(m)
+
+                    date = time_handler(m['date'])
                     hold = ' ' * (users.get(m['from_id'])['length'] + 2)
-                    msg = hold if (prev and prev == m['from_id']) else users.get(
+
+                    msg = res['date'] + ' '
+                    msg += hold if (prev and date and prev == m['from_id'] and prev_date == date) else users.get(
                         m['from_id'])['name'] + ': '
 
-                    res = message_handler(m)
                     if res['messages']:
                         msg += res['messages'][0] + '\n'
                         for r in res['messages'][1:]:
-                            msg += hold + r + '\n'
+                            msg += hold + ' '*8 + r + '\n'
                     else:
                         msg += '\n'
 
@@ -779,6 +821,12 @@ def dump_messages(**kwargs):
                             for a in res['attachments'][tp]:
                                 if a not in attachments[tp]:
                                     attachments[tp].append(a)
+
+                    if prev_date != date:
+                        if prev_date:
+                            f.write('\n')
+                        f.write('        [{date}]\n'.format(date=date))
+                        prev_date = date
 
                     f.write(msg)
                     prev = m['from_id']
@@ -1032,14 +1080,14 @@ def print_center(msg, **kwargs):
 def welcome():
     ANSI_AVAILABLE and stdout.write('\x1b]0;{}\x07'.format(NAME))
     clear()
-    print_center([NAME, 'v' + VERSION],
-                 color=['green', None],
-                 mod=['bold', None],
+    print_center([NAME, 'v' + VERSION, '', DESCRIPTION],
+                 color=['green', None, None, 'yellow'],
+                 mod=['bold', None, None, None],
                  slow=True, delay=1 / 50)
 
-    print('\x1b[?25l' if ANSI_AVAILABLE else '')
+    ANSI_AVAILABLE and print('\x1b[?25l')
     sleep(2)
-    print('\x1b[?25h' if ANSI_AVAILABLE else '')
+    ANSI_AVAILABLE and print('\x1b[?25h')
 
 
 def goodbye():
@@ -1220,6 +1268,7 @@ def settings_screen():
 
 if __name__ == '__main__':
     init()
+    update()
 
     if args.dump:
         if (not args.login or not args.password) and (not args.token):
