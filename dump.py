@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 from configparser import ConfigParser
+import logging
 
 from os import getcwd, cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
 from os.path import exists, join as pjoin
@@ -18,17 +19,16 @@ from multiprocessing import Pool
 from multiprocessing.pool import MaybeEncodingError
 
 import vk_api
-from jconfig.jconfig import Config
-from jconfig.memory import MemoryConfig
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.0'
+VERSION = '0.8.1'
 DESCRIPTION = 'Now with AutoUpdate!'
 API_VERSION = '5.92'
 
 parser = argparse.ArgumentParser(description=NAME)
 parser.add_argument('--version', action='version', version=VERSION)
+parser.add_argument('--update', action='store_true', help='update only')
 auth = parser.add_argument_group('Аутентификация')
 auth.add_argument('-l', '--login', type=str, metavar='\b', help='логин')
 auth.add_argument('-p', '--password', type=str, metavar='\b', help='пароль')
@@ -55,7 +55,7 @@ settings_names = {
     'MEMORY_CONFIG': 'Сохранять конфиг vk_api в памяти вместо записи в файл',
     'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
-    'POOL_PROCESSES': 'Количество процессов для мультипоточной загрузке',
+    'POOL_PROCESSES': 'Число создаваемых процессов при мультипоточной загрузке',
     'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео',
     'KEEP_DIALOG_NAMES': 'Сохранять название диалога в случае его изменения',
     'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов'
@@ -64,37 +64,55 @@ settings_names = {
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 INVALID_POSIX_CHARS = ['$']
 
-#
-def update():
-    clear()
-    print_center([NAME+' : '+VERSION, '', 'Проверка на наличие обновлений...'],
-                 color=['green', None, 'yellow'])
+
+def update(**kwargs):
+    quite = 'quite' in kwargs and kwargs['quite']
+    if quite:
+        print('Проверка на наличие обновлений...')
+    else:
+        clear()
+        print_center([f'{NAME} [{VERSION}]', '', 'Проверка на наличие обновлений...'],
+                     color=['green', None, 'yellow'])
 
     from requests import get
     res = get('https://api.github.com/repos/hikiko4ern/vk_dump/releases/latest').json()
     if 'url' in res:
-        cv = VERSION.split('.')
-        nv = res['tag_name'].split('v')[1].split('.')
-        if (nv[0] > cv[0]) or (nv[0] == cv[0] and nv[1] > cv[1]) or (nv[0] == cv[0] and nv[1] == cv[1] and nv[2] > cv[2]):
-            print_center('Новая версия найдена ({})'.format(
-                res['tag_name']), color='green', mod='bold', offset=-2)
+        cv = int(VERSION.replace('.', ''))
+        nv = int(res['tag_name'].split('v')[1].replace('.', ''))
+        if (nv > cv):
             for a in res['assets']:
                 if a['name'] == 'dump.py':
+                    if quite:
+                        print('Найдена новая версия ({})'.format(res['tag_name']))
+                    else:
+                        print_center('Найдена новая версия ({})'.format(
+                                     res['tag_name']), color='green', mod='bold', offset=-2)
                     if download(a['browser_download_url'], getcwd(), force=True):
-                        print_center(['Обновление успешно!', 'Перезапустите программу вручную :3'],
-                                     color=['green', 'yellow'], mod=['bold', 'bold'], offset=-5)
+                        if quite:
+                            print('Обновление успешно!\nПерезапустите программу вручную :3')
+                        else:
+                            print_center(['Обновление успешно!', 'Перезапустите программу вручную :3'],
+                                         color=['green', 'yellow'], mod=['bold', 'bold'], offset=-5)
                         raise SystemExit
                     else:
-                        print_center(['Не удалось обновить', 'Скачайте и замените dump.py вручную', 'https://github.com/hikiko4ern/vk_dump/releases/latest'],
-                                     color=['red', 'yellow', None], mod=['bold', 'bold', None], offset=-3)
+                        if quite:
+                            print(
+                                'Не удалось обновить\nСкачайте и замените dump.py вручную\nhttps://github.com/hikiko4ern/vk_dump/releases/latest')
+                        else:
+                            print_center(['Не удалось обновить', 'Скачайте и замените dump.py вручную', 'https://github.com/hikiko4ern/vk_dump/releases/latest'],
+                                         color=['red', 'yellow', None], mod=['bold', 'bold', None], offset=-3)
                         raise SystemExit
+        else:
+            if quite:
+                print('Обновлений не найдено')
 
 
-#
 def init():
-    global args, w, h, colors, mods, settings, ANSI_AVAILABLE, INVALID_CHARS
+    global args, logger, settings, Config, ANSI_AVAILABLE, INVALID_CHARS, w, h, colors, mods
 
     args = parser.parse_args()
+
+    logger = logging.Logger(name='youtube-dl', level=logging.FATAL)
 
     if osname == 'nt':
         from platform import platform
@@ -124,8 +142,13 @@ def init():
                 settings[s.upper()] = int(c)
             except ValueError:
                 settings[s.upper()] = True if c == 'True' else \
-                    False if c == 'False' else \
-                    c
+                                      False if c == 'False' else \
+                                      c
+
+    if settings['MEMORY_CONFIG']:
+        from jconfig.memory import MemoryConfig as Config
+    else:
+        from jconfig.jconfig import Config
 
     w, h = get_terminal_size()
     colors = {
@@ -171,9 +194,9 @@ def log(*msg):
             vk_session = vk_api.VkApi(token=args.token, app_id=6631721,
                                       auth_handler=auth_handler, api_version=API_VERSION)
         else:
-            if args.login and args.password:
+            if args.login and not msg:
                 login = args.login
-                password = args.password
+                password = args.password if args.password else ''
             else:
                 login = input('    login: {clr}'.format(
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
@@ -182,8 +205,7 @@ def log(*msg):
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
                 print(mods['nc'], end='')
             vk_session = vk_api.VkApi(login, password,
-                                      config=(
-                                          MemoryConfig if settings['MEMORY_CONFIG'] else Config),
+                                      config=(Config),
                                       app_id=6631721,
                                       api_version=API_VERSION,
                                       auth_handler=auth_handler,
@@ -227,8 +249,7 @@ def download(obj, folder, **kwargs):
         kwargs = obj
 
     if 'name' in kwargs:
-        fn = '_'.join(kwargs['name'].split(
-            ' ')) if settings['REPLACE_SPACES'] else kwargs['name']
+        fn = '_'.join(kwargs['name'].split(' ')) if settings['REPLACE_SPACES'] else kwargs['name']
         if 'ext' in kwargs:
             if fn.split('.')[-1] != kwargs['ext']:
                 fn += '.{}'.format(kwargs['ext'])
@@ -262,24 +283,22 @@ def download(obj, folder, **kwargs):
 
 def download_video(v, folder):
     if 'platform' in v:
-        # if v['platform'] in ('YouTube', 'Coub', 'Vimeo'):
         return download_external(v['player'], folder)
     else:
         if 'player' not in v:
             return False
         if 'height' not in v:
             v['height'] = 480 if 'photo_800' in v else \
-                360 if 'photo_320' in v else \
-                240
+                          360 if 'photo_320' in v else \
+                          240
 
-        url = v['player'] if 'access_key' not in v else f'{v["player"]}?access_key={v["access_key"]}'
+        url = v['player'] if ('access_key' not in v) else f"{v['player']}?access_key={v['access_key']}"
         data = urlopen(url).read()
         try:
             download(
                 research(b'https://cs.*vkuservideo.*'
-                         + str(min(v['height'], v['width'])
-                               if 'width' in v else v['height'])
-                         .encode() + b'.mp4', data).group(0).decode(),
+                         + str(min(v['height'], v['width']) if ('width' in v) else v['height']).encode()
+                         + b'.mp4', data).group(0).decode(),
                 folder,
                 name=v['title'] + '_' + str(v['id']),
                 ext='mp4'
@@ -292,20 +311,14 @@ def download_external(url, folder):
     if not url:
         return False
 
-    try:
-        YoutubeDL({
-            'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
-            'nooverwrites': True,
-            'no_warnings': True,
-            'ignoreerros': True,
-            'quiet': True
-        }).download((url,))
-        return True
-    except Exception:
-        return False
+    YoutubeDL({
+        'logger': logger,
+        'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
+        'nooverwrites': True,
+        'fixup': 'detect_or_warn'
+    }).download((url,))
 
 
-# Dump funcs
 def dump_photos():
     makedirs(pjoin('dump', 'photos'), exist_ok=True)
     albums = vk.photos.getAlbums(need_system=1)
@@ -458,7 +471,7 @@ def dump_messages(**kwargs):
             users[id] = {'name': r'{unknown user}', 'length': 3}
 
     def time_handler(time):
-        # seconds -> human readable format
+        # seconds -> human-readable format
         m = {'january': 'января', 'february': 'февраля', 'march': 'марта', 'april': 'апреля', 'may': 'мая', 'june': 'июня',
              'july': 'июля', 'august': 'августа', 'september': 'сентября', 'october': 'октября', 'november': 'ноября', 'december': 'декабря'}
         t = strftime('%d %B %Y', gmtime(time)).lower().split(' ')
@@ -470,6 +483,7 @@ def dump_messages(**kwargs):
         Обработчик сообщений.
         Возвращает объект
             {
+                date: str,              # [HH:MM]
                 "messages": [...],
                 "attachments": {
                     "photos": [...],
@@ -477,7 +491,7 @@ def dump_messages(**kwargs):
                     "docs": [...]
                 }
             }
-
+        """"""
         [документация API]
             [вложения]
                 [сообщения]
@@ -646,8 +660,8 @@ def dump_messages(**kwargs):
 
         if 'action' in msg and msg['action']:
             """
-                member - совершающий действие
-                user - объект действия
+            member - совершающий действие
+            user - объект действия
             """
             act = msg['action']
             tp = act['type']
@@ -1034,7 +1048,6 @@ def dump_all():
         print()
 
 
-# GUI funcs
 def clear(): return print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
 
@@ -1268,7 +1281,10 @@ def settings_screen():
 
 if __name__ == '__main__':
     init()
-    update()
+    update(quite=(True if (args.dump or args.update) else False))
+
+    if args.update:
+        raise SystemExit
 
     if args.dump:
         if (not args.login or not args.password) and (not args.token):
@@ -1278,7 +1294,6 @@ if __name__ == '__main__':
         else:
             log()
             for d in args.dump:
-                # DUMPS[d]()
                 if d == 'photos':
                     dump_photos()
                 elif d == 'audio':
