@@ -22,8 +22,8 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.1'
-DESCRIPTION = 'Now with AutoUpdate!'
+VERSION = '0.8.2'
+DESCRIPTION = 'Better fave dump <3'
 API_VERSION = '5.92'
 
 parser = argparse.ArgumentParser(description=NAME)
@@ -36,7 +36,7 @@ auth.add_argument('-t', '--token', type=str, metavar='\b', help='access_token')
 dump = parser.add_argument_group('Дамп данных')
 dump.add_argument('--dump', type=str, nargs='*',
                   choices=('photos', 'audio', 'video', 'docs', 'messages',
-                           'attachments', 'liked_posts', 'all'),
+                           'attachments', 'fave_posts', 'fave_photos', 'fave_videos', 'all'),
                   help='Данные для сохранения.')
 
 AVAILABLE_THREADS = cpu_count()
@@ -142,8 +142,8 @@ def init():
                 settings[s.upper()] = int(c)
             except ValueError:
                 settings[s.upper()] = True if c == 'True' else \
-                                      False if c == 'False' else \
-                                      c
+                    False if c == 'False' else \
+                    c
 
     if settings['MEMORY_CONFIG']:
         from jconfig.memory import MemoryConfig as Config
@@ -946,7 +946,7 @@ def dump_attachments_only():
     dump_messages(attachments_only=True)
 
 
-def dump_liked_posts():
+def dump_fave_posts():
     folder_photos = pjoin('dump', 'photos', 'Понравившиеся')
     makedirs(folder_photos, exist_ok=True)
     folder_videos = pjoin('dump', 'video', 'Понравившиеся')
@@ -1042,8 +1042,70 @@ def dump_liked_posts():
         None
 
 
+def dump_fave_photos():
+    folder = pjoin('dump', 'photos', 'Понравившиеся')
+    makedirs(folder, exist_ok=True)
+
+    print('[получение понравившихся фото]')
+
+    photos = vk_tools.get_all(
+        method='fave.getPhotos',
+        max_count=50,
+        values={
+            'photo_sizes': 1
+        })
+
+    print('Сохранение понравившихся фото:')
+
+    if photos['count'] == 0:
+        print('  0/0')
+    else:
+        objs = []
+        for p in photos['items']:
+            objs.append(p['sizes'][-1]['url'])
+
+        print('  .../{}'.format(photos['count']), end='\r')
+        with Pool(settings['POOL_PROCESSES']) as pool:
+            pool.starmap(download, zip(objs, itertools.repeat(folder)))
+        print(
+            '\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
+
+
+def dump_fave_videos():
+    folder = pjoin('dump', 'video', 'Понравившиеся')
+    makedirs(folder, exist_ok=True)
+
+    print('[получение понравившихся видео]')
+
+    video = vk_tools.get_all(
+        method='fave.getVideos',
+        max_count=50,
+        values={
+            'extended': 1
+        })
+
+    print('Сохранение понравившихся видео:')
+
+    if video['count'] == 0:
+        print('    0/0')
+    else:
+        objs = []
+        for v in video['items']:
+            objs.append(v)
+
+        print('    .../{}'.format(video['count']), end='\r')
+        try:
+            with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
+                pool.starmap(download_video, zip(
+                    objs, itertools.repeat(folder)))
+        except MaybeEncodingError:
+            None
+        print(
+            '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
+
+
 def dump_all():
-    for d in (dump_photos, dump_audio, dump_video, dump_docs, dump_messages, dump_attachments_only, dump_liked_posts):
+    for d in (dump_photos, dump_audio, dump_video, dump_docs, dump_messages, dump_attachments_only, dump_fave_posts, dump_fave_photos, dump_fave_videos):
         d()
         print()
 
@@ -1144,7 +1206,7 @@ def menu():
         'Документы', dump_docs,
         'Сообщения', dump_messages,
         'Вложения диалогов', dump_attachments_only,
-        'Данные понравившихся постов', dump_liked_posts
+        'Понравившиеся вложения', menu_dump_fave
     ]
 
     if args.token:
@@ -1203,6 +1265,63 @@ def menu():
         menu()
     except ValueError:
         menu()
+    except KeyboardInterrupt:
+        goodbye()
+
+
+def menu_dump_fave():
+    global args
+
+    clear()
+    logInfo()
+    print()
+
+    actions = [
+        'Вложения понравившихся постов (фото, видео, документы)', dump_fave_posts,
+        'Фото (отдельно)', dump_fave_photos,
+        'Видео (отдельно)', dump_fave_videos
+    ]
+
+    print('Дамп понравившихся вложений:\n')
+
+    for i in range(int(len(actions) / 2)):
+        print('{clr}[{ind}]{nc} {name}'.format(
+            ind=i + 1, name=actions[i * 2], clr=colors['blue'], nc=mods['nc']))
+    print('\n{clr}[0]{nc} В меню'.format(clr=colors['blue'], nc=mods['nc']))
+
+    print()
+    try:
+        choice = int(input('> '))
+        if choice == 0:
+            menu()
+
+        if choice not in range(1, len(actions) + 1):
+            raise IndexError
+
+        choice = actions[(choice - 1) * 2 + 1]
+
+        if isinstance(choice, list):
+            for c in choice:
+                c()
+                print()
+            menu_dump_fave()
+        elif callable(choice):
+            choice()
+            print('\n{clr}Сохранение завершено :з{nc}'.format(
+                  clr=colors['green'], nc=mods['nc']))
+            input('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
+                  clr=colors['cyan'] + mods['bold'], nc=mods['nc']))
+            menu_dump_fave()
+        else:
+            raise IndexError
+    except IndexError:
+        print_center('Выберите действие из доступных',
+                     color='red', mode='bold')
+        sleep(2)
+        clear()
+        menu_dump_fave()
+    except ValueError:
+        menu_dump_fave()
     except KeyboardInterrupt:
         goodbye()
 
@@ -1306,8 +1425,12 @@ if __name__ == '__main__':
                     dump_messages()
                 elif d == 'attachments':
                     dump_attachments_only()
-                elif d == 'liked_posts':
-                    dump_liked_posts()
+                elif d == 'fave_posts':
+                    dump_fave_posts()
+                elif d == 'fave_photos':
+                    dump_fave_photos()
+                elif d == 'fave_videos':
+                    dump_fave_videos()
                 elif d == 'all':
                     dump_all()
                 print()
