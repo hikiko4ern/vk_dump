@@ -22,8 +22,8 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.2'
-DESCRIPTION = 'Better fave dump <3'
+VERSION = '0.8.3'
+DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
 parser = argparse.ArgumentParser(description=NAME)
@@ -42,6 +42,7 @@ dump.add_argument('--dump', type=str, nargs='*',
 AVAILABLE_THREADS = cpu_count()
 
 settings = {
+    'SHOW_ANNOUNCEMENT': True,  # показывать экран / выводить сообщения
     'MEMORY_CONFIG': True,  # сохранять конфиг в память вместо файла
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
@@ -52,6 +53,7 @@ settings = {
 }
 
 settings_names = {
+    'SHOW_ANNOUNCEMENT': 'Показывать объявления',
     'MEMORY_CONFIG': 'Сохранять конфиг vk_api в памяти вместо записи в файл',
     'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
@@ -214,6 +216,7 @@ def log(*msg):
         vk = vk_session.get_api()
         vk_tools = vk_api.VkTools(vk)
         account = vk.account.getProfileInfo()
+        vk.stats.trackVisitor()
     except KeyboardInterrupt:
         goodbye()
     except vk_api.exceptions.ApiError:
@@ -361,7 +364,7 @@ def dump_audio():
     folder = pjoin('dump', 'audio')
     makedirs(folder, exist_ok=True)
 
-    print('\nСохранение аудио:')
+    print('Сохранение аудио:')
 
     if len(tracks) == 0:
         print('  0/0')
@@ -483,7 +486,7 @@ def dump_messages(**kwargs):
         Обработчик сообщений.
         Возвращает объект
             {
-                date: str,              # [HH:MM]
+                date: str, # [HH:MM]
                 "messages": [...],
                 "attachments": {
                     "photos": [...],
@@ -844,7 +847,7 @@ def dump_messages(**kwargs):
 
                     f.write(msg)
                     prev = m['from_id']
-                    print('\x1b[2K      {}/{}'.format(i, count), end='\r')
+                    print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
         else:
             count = len(history['items'])
             print('    [обработка сообщений]')
@@ -859,7 +862,7 @@ def dump_messages(**kwargs):
                         if a not in attachments[tp]:
                             attachments[tp].append(a)
 
-                print('\x1b[2K      {}/{}'.format(i, count), end='\r')
+                print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
 
         if settings['SAVE_DIALOG_ATTACHMENTS'] or ('attachments_only' in kwargs and kwargs['attachments_only']):
             at_folder = pjoin(folder, fn)
@@ -1105,7 +1108,7 @@ def dump_fave_videos():
 
 
 def dump_all():
-    for d in (dump_photos, dump_audio, dump_video, dump_docs, dump_messages, dump_attachments_only, dump_fave_posts, dump_fave_photos, dump_fave_videos):
+    for d in (dump_photos, dump_audio, dump_video, dump_docs, dump_messages, dump_fave_posts, dump_fave_photos, dump_fave_videos):
         d()
         print()
 
@@ -1163,6 +1166,29 @@ def welcome():
     ANSI_AVAILABLE and print('\x1b[?25l')
     sleep(2)
     ANSI_AVAILABLE and print('\x1b[?25h')
+
+
+def announcement_15feb():
+    if settings['SHOW_ANNOUNCEMENT']:
+        if not (args.dump or args.update):
+            clear()
+            print_center(['Внимание!', '15 февраля ВКонтакте закрывает доступ к API сообщений.',
+                          'Возможно, удастся пройти модерацию, или же будет придуман обход.',
+                          'Дальнейшая судьба скрипта неизвестна, но стоит надеяться на лучшее :з', '',
+                          'Если будут новости по сложившейся ситуации - они появятся в README репозитория.', '',
+                          'Спасибо за прочтение. Показ этой информации можно отключить в настройках.',
+                          'Нажмите Enter для продолжения...'],
+                          color=['red', 'yellow', 'yellow', 'yellow', None, 'cyan', None, 'white', 'white'])
+            ANSI_AVAILABLE and print('\x1b[?25l')
+            input()
+            ANSI_AVAILABLE and print('\x1b[?25h')
+        else:
+            print()
+            print('Внимание!', '15 февраля ВКонтакте закрывает доступ к API сообщений.',
+                  'Возможно, удастся пройти модерацию, или же будет придуман обход.',
+                  'Дальнейшая судьба скрипта неизвестна, но стоит надеяться на лучшее :з',
+                  sep='\n')
+            print()
 
 
 def goodbye():
@@ -1233,8 +1259,7 @@ def menu():
             elif choice == 's':
                 choice = settings_screen
             elif choice == 'f':
-                choice = [actions[i]
-                          for i in range(len(actions)) if i % 2 == 1]
+                choice = dump_all
             else:
                 if int(choice) not in range(1, len(actions) + 1):
                     raise IndexError
@@ -1242,11 +1267,6 @@ def menu():
 
         if choice is exit:
             goodbye()
-        elif isinstance(choice, list):
-            for c in choice:
-                c()
-                print()
-            menu()
         elif callable(choice):
             choice()
             if choice is not settings_screen:
@@ -1300,12 +1320,7 @@ def menu_dump_fave():
 
         choice = actions[(choice - 1) * 2 + 1]
 
-        if isinstance(choice, list):
-            for c in choice:
-                c()
-                print()
-            menu_dump_fave()
-        elif callable(choice):
+        if callable(choice):
             choice()
             print('\n{clr}Сохранение завершено :з{nc}'.format(
                   clr=colors['green'], nc=mods['nc']))
@@ -1400,7 +1415,9 @@ def settings_screen():
 
 if __name__ == '__main__':
     init()
-    update(quite=(True if (args.dump or args.update) else False))
+    update(quite=(args.dump or args.update))
+
+    announcement_15feb()
 
     if args.update:
         raise SystemExit
@@ -1412,6 +1429,7 @@ if __name__ == '__main__':
             print('|--------------------------------------------------------|')
         else:
             log()
+            vk.stats.trackVisitor()
             for d in args.dump:
                 if d == 'photos':
                     dump_photos()
