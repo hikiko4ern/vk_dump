@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.3'
+VERSION = '0.8.4'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -35,8 +35,8 @@ auth.add_argument('-p', '--password', type=str, metavar='\b', help='пароль
 auth.add_argument('-t', '--token', type=str, metavar='\b', help='access_token')
 dump = parser.add_argument_group('Дамп данных')
 dump.add_argument('--dump', type=str, nargs='*',
-                  choices=('photos', 'audio', 'video', 'docs', 'messages',
-                           'attachments', 'fave_posts', 'fave_photos', 'fave_videos', 'all'),
+                  choices=('photos', 'video', 'docs', 'messages', 'attachments',
+                           'fave_posts', 'fave_photos', 'fave_videos', 'all'),
                   help='Данные для сохранения.')
 
 AVAILABLE_THREADS = cpu_count()
@@ -353,34 +353,6 @@ def dump_photos():
                 pool.starmap(download, zip(objs, itertools.repeat(folder)))
             print(
                 '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
-
-
-def dump_audio():
-    import vk_api.audio
-
-    print('[получение списка аудио]')
-    tracks = vk_api.audio.VkAudio(vk_session).get()
-
-    folder = pjoin('dump', 'audio')
-    makedirs(folder, exist_ok=True)
-
-    print('Сохранение аудио:')
-
-    if len(tracks) == 0:
-        print('  0/0')
-    else:
-        audios = []
-        for a in tracks:
-            audios.append({
-                'url': a['url'],
-                'name': '{artist} - {title}_{id}'.format(artist=a['artist'], title=a['title'], id=a['id']),
-                'ext': 'mp3'
-            })
-
-        print('  .../{}'.format(len(tracks)), end='\r')
-        with Pool(settings['POOL_PROCESSES']) as pool:
-            pool.starmap(download, zip(audios, itertools.repeat(folder)))
-        print('\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), len(tracks)))
 
 
 def dump_video():
@@ -1108,7 +1080,7 @@ def dump_fave_videos():
 
 
 def dump_all():
-    for d in (dump_photos, dump_audio, dump_video, dump_docs, dump_messages, dump_fave_posts, dump_fave_photos, dump_fave_videos):
+    for d in (dump_photos, dump_video, dump_docs, dump_messages, dump_fave_posts, dump_fave_photos, dump_fave_videos):
         d()
         print()
 
@@ -1227,17 +1199,12 @@ def menu():
 
     actions = [
         'Фото (по альбомам)', dump_photos,
-        'Аудио', dump_audio,
         'Видео (по альбомам)', dump_video,
         'Документы', dump_docs,
         'Сообщения', dump_messages,
         'Вложения диалогов', dump_attachments_only,
         'Понравившиеся вложения', menu_dump_fave
     ]
-
-    if args.token:
-        actions.pop(actions.index(dump_audio) - 1)
-        actions.pop(actions.index(dump_audio))
 
     print('Дамп данных:\n')
 
@@ -1433,8 +1400,6 @@ if __name__ == '__main__':
             for d in args.dump:
                 if d == 'photos':
                     dump_photos()
-                elif d == 'audio':
-                    dump_audio()
                 elif d == 'video':
                     dump_video()
                 elif d == 'docs':
