@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.4'
+VERSION = '0.8.5'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -42,25 +42,27 @@ dump.add_argument('--dump', type=str, nargs='*',
 AVAILABLE_THREADS = cpu_count()
 
 settings = {
-    'SHOW_ANNOUNCEMENT': True,  # показывать экран / выводить сообщения
+    'SHOW_ANNOUNCEMENTS': True,  # показывать экран / выводить сообщения
     'MEMORY_CONFIG': True,  # сохранять конфиг в память вместо файла
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
     'POOL_PROCESSES': 4 * AVAILABLE_THREADS,  # макс. число создаваемых процессов
     'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
     'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога
-    'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
+    'SAVE_DIALOG_ATTACHMENTS': True,  # сохранять вложения из диалогов
+    'UPDATE_CHANNEL': True  # канал для получения обновлений; true - GitHub, false - GitLab
 }
 
 settings_names = {
-    'SHOW_ANNOUNCEMENT': 'Показывать объявления',
+    'SHOW_ANNOUNCEMENTS': 'Показывать объявления',
     'MEMORY_CONFIG': 'Сохранять конфиг vk_api в памяти вместо записи в файл',
     'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
     'POOL_PROCESSES': 'Число создаваемых процессов при мультипоточной загрузке',
     'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео',
     'KEEP_DIALOG_NAMES': 'Сохранять название диалога в случае его изменения',
-    'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов'
+    'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов',
+    'UPDATE_CHANNEL': 'Канал обновлений (GitHub / GitLab)'
 }
 
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
@@ -77,19 +79,23 @@ def update(**kwargs):
                      color=['green', None, 'yellow'])
 
     from requests import get
-    res = get('https://api.github.com/repos/hikiko4ern/vk_dump/releases/latest').json()
-    if 'url' in res:
+
+    if settings['UPDATE_CHANNEL']:
+        res = get('https://api.github.com/repos/hikiko4ern/vk_dump/releases/latest').json()
+    else:
+        res = get('https://gitlab.com/api/v4/projects/10503487/releases').json()[0]
+    if 'tag_name' in res:
         cv = int(VERSION.replace('.', ''))
         nv = int(res['tag_name'].split('v')[1].replace('.', ''))
         if (nv > cv):
-            for a in res['assets']:
-                if a['name'] == 'dump.py':
+            for a in (res['assets'] if settings['UPDATE_CHANNEL'] else res['assets']['links']):
+                if 'name' in a and a['name'] == 'dump.py':
                     if quite:
                         print('Найдена новая версия ({})'.format(res['tag_name']))
                     else:
                         print_center('Найдена новая версия ({})'.format(
                                      res['tag_name']), color='green', mod='bold', offset=-2)
-                    if download(a['browser_download_url'], getcwd(), force=True):
+                    if download((a['browser_download_url'] if settings['UPDATE_CHANNEL'] else a['url']), getcwd(), force=True, text_mode=True):
                         if quite:
                             print('Обновление успешно!\nПерезапустите программу вручную :3')
                         else:
@@ -98,8 +104,7 @@ def update(**kwargs):
                         raise SystemExit
                     else:
                         if quite:
-                            print(
-                                'Не удалось обновить\nСкачайте и замените dump.py вручную\nhttps://github.com/hikiko4ern/vk_dump/releases/latest')
+                            print('Не удалось обновить\nСкачайте и замените dump.py вручную\nhttps://github.com/hikiko4ern/vk_dump/releases/latest')
                         else:
                             print_center(['Не удалось обновить', 'Скачайте и замените dump.py вручную', 'https://github.com/hikiko4ern/vk_dump/releases/latest'],
                                          color=['red', 'yellow', None], mod=['bold', 'bold', None], offset=-3)
@@ -144,8 +149,8 @@ def init():
                 settings[s.upper()] = int(c)
             except ValueError:
                 settings[s.upper()] = True if c == 'True' else \
-                    False if c == 'False' else \
-                    c
+                                      False if c == 'False' else \
+                                      c
 
     if settings['MEMORY_CONFIG']:
         from jconfig.memory import MemoryConfig as Config
@@ -270,9 +275,14 @@ def download(obj, folder, **kwargs):
 
     if not exists(pjoin(folder, fn)) or ('force' in kwargs and kwargs['force']):
         try:
-            r = requests.get(url, stream=True, timeout=(30, 5))
-            with open(pjoin(folder, fn), 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
+            if 'text_mode' in kwargs and kwargs['text_mode']:
+                r = requests.get(url, timeout=(30, 5))
+                with open(pjoin(folder, fn), 'w') as f:
+                    f.write(r.text)
+            else:
+                r = requests.get(url, stream=True, timeout=(30, 5))
+                with open(pjoin(folder, fn), 'wb') as f:
+                    shutil.copyfileobj(r.raw, f)
             return True
         except requests.exceptions.ConnectionError:
             return False
@@ -353,6 +363,9 @@ def dump_photos():
                 pool.starmap(download, zip(objs, itertools.repeat(folder)))
             print(
                 '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
+
+
+# Audi was here
 
 
 def dump_video():
@@ -1140,12 +1153,12 @@ def welcome():
     ANSI_AVAILABLE and print('\x1b[?25h')
 
 
-def announcement_15feb():
-    if settings['SHOW_ANNOUNCEMENT']:
+def announcement():
+    if settings['SHOW_ANNOUNCEMENTS']:
         if not (args.dump or args.update):
             clear()
             print_center(['Внимание!', '15 февраля ВКонтакте закрывает доступ к API сообщений.',
-                          'Возможно, удастся пройти модерацию, или же будет придуман обход.',
+                          'Прохождение модерации в процессе.',
                           'Дальнейшая судьба скрипта неизвестна, но стоит надеяться на лучшее :з', '',
                           'Если будут новости по сложившейся ситуации - они появятся в README репозитория.', '',
                           'Спасибо за прочтение. Показ этой информации можно отключить в настройках.',
@@ -1206,13 +1219,15 @@ def menu():
         'Понравившиеся вложения', menu_dump_fave
     ]
 
+    # Audi was here too
+
     print('Дамп данных:\n')
 
     for i in range(int(len(actions) / 2)):
         print('{clr}[{ind}]{nc} {name}'.format(
-            ind=i + 1, name=actions[i * 2], clr=colors['blue'], nc=mods['nc']))
+              ind=i + 1, name=actions[i * 2], clr=colors['blue'], nc=mods['nc']))
     print('\n{clr}[F]{nc} Все данные'.format(
-        clr=colors['blue'], nc=mods['nc']))
+          clr=colors['blue'], nc=mods['nc']))
     print('\n{clr}[S]{nc} Настройки'.format(clr=colors['blue'], nc=mods['nc']))
     print('{clr}[Q]{nc} Выход'.format(clr=colors['blue'], nc=mods['nc']))
 
@@ -1238,15 +1253,14 @@ def menu():
             choice()
             if choice is not settings_screen:
                 print('\n{clr}Сохранение завершено :з{nc}'.format(
-                    clr=colors['green'], nc=mods['nc']))
+                      clr=colors['green'], nc=mods['nc']))
                 input('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
-                    clr=colors['cyan'] + mods['bold'], nc=mods['nc']))
+                      clr=colors['cyan'] + mods['bold'], nc=mods['nc']))
             menu()
         else:
             raise IndexError
     except IndexError:
-        print_center('Выберите действие из доступных',
-                     color='red', mode='bold')
+        print_center('Выберите действие из доступных', color='red', mode='bold')
         sleep(2)
         clear()
         menu()
@@ -1273,7 +1287,7 @@ def menu_dump_fave():
 
     for i in range(int(len(actions) / 2)):
         print('{clr}[{ind}]{nc} {name}'.format(
-            ind=i + 1, name=actions[i * 2], clr=colors['blue'], nc=mods['nc']))
+              ind=i + 1, name=actions[i * 2], clr=colors['blue'], nc=mods['nc']))
     print('\n{clr}[0]{nc} В меню'.format(clr=colors['blue'], nc=mods['nc']))
 
     print()
@@ -1297,8 +1311,7 @@ def menu_dump_fave():
         else:
             raise IndexError
     except IndexError:
-        print_center('Выберите действие из доступных',
-                     color='red', mode='bold')
+        print_center('Выберите действие из доступных', color='red', mode='bold')
         sleep(2)
         clear()
         menu_dump_fave()
@@ -1325,7 +1338,7 @@ def settings_screen():
         print('{ind_clr}[{ind}]{nc} {name}: {clr}{value}{nc}'.format(
             ind=i + 1,
             name=settings_names[s],
-            value=value,
+            value=(('GitHub' if settings[s] else 'GitLab') if (s == 'UPDATE_CHANNEL') else value),
             ind_clr=colors['blue'],
             clr=color if 'color' in locals() else colors['yellow'],
             nc=mods['nc']
@@ -1384,7 +1397,7 @@ if __name__ == '__main__':
     init()
     update(quite=(args.dump or args.update))
 
-    announcement_15feb()
+    announcement()
 
     if args.update:
         raise SystemExit
