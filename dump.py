@@ -26,6 +26,8 @@ VERSION = '0.8.5'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
+logger = logging.Logger(name='youtube-dl', level=logging.FATAL)
+
 parser = argparse.ArgumentParser(description=NAME)
 parser.add_argument('--version', action='version', version=VERSION)
 parser.add_argument('--update', action='store_true', help='update only')
@@ -115,11 +117,9 @@ def update(**kwargs):
 
 
 def init():
-    global args, logger, settings, Config, ANSI_AVAILABLE, INVALID_CHARS, w, h, colors, mods
+    global args, settings, Config, ANSI_AVAILABLE, INVALID_CHARS, w, h, colors, mods
 
     args = parser.parse_args()
-
-    logger = logging.Logger(name='youtube-dl', level=logging.FATAL)
 
     if osname == 'nt':
         from platform import platform
@@ -1350,6 +1350,7 @@ def settings_screen():
 
     print('\n{clr}[0]{nc} В меню'.format(clr=colors['blue'], nc=mods['nc']))
 
+    print()
     try:
         choice = int(input('> '))
         if choice == 0:
