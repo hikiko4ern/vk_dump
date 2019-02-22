@@ -6,7 +6,7 @@ import logging
 from os import getcwd, cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
 from os.path import exists, join as pjoin
 from sys import stdout
-from time import sleep, gmtime, strftime
+import time
 
 import urllib3
 from urllib.request import urlopen
@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.5'
+VERSION = '0.8.6'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -44,28 +44,41 @@ dump.add_argument('--dump', type=str, nargs='*',
 AVAILABLE_THREADS = cpu_count()
 
 settings = {
+    'UPDATE_CHANNEL': True,  # канал для получения обновлений; true - GitHub, false - GitLab
+
     'SHOW_ANNOUNCEMENTS': True,  # показывать экран / выводить сообщения
     'MEMORY_CONFIG': True,  # сохранять конфиг в память вместо файла
+
     'REPLACE_SPACES': False,  # заменять пробелы на _
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
-    'POOL_PROCESSES': 4 * AVAILABLE_THREADS,  # макс. число создаваемых процессов
+
+    'POOL_PROCESSES': 4*AVAILABLE_THREADS,  # макс. число создаваемых процессов
     'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
+
+    'DIALOG_APPEND_MESSAGES': False,  # дописывать новые сообщения в файл вместо полной перезаписи
     'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога
-    'SAVE_DIALOG_ATTACHMENTS': True,  # сохранять вложения из диалогов
-    'UPDATE_CHANNEL': True  # канал для получения обновлений; true - GitHub, false - GitLab
+    'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
 }
 
 settings_names = {
+    'UPDATE_CHANNEL': 'Канал обновлений (GitHub / GitLab)',
+
     'SHOW_ANNOUNCEMENTS': 'Показывать объявления',
     'MEMORY_CONFIG': 'Сохранять конфиг vk_api в памяти вместо записи в файл',
+
     'REPLACE_SPACES': 'Заменять пробелы на символ "_"',
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
+
     'POOL_PROCESSES': 'Число создаваемых процессов при мультипоточной загрузке',
     'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео',
+
+    # TODO: название
+    'DIALOG_APPEND_MESSAGES': 'Дописывать новые сообщения в файл вместо полной перезаписи',
     'KEEP_DIALOG_NAMES': 'Сохранять название диалога в случае его изменения',
     'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов',
-    'UPDATE_CHANNEL': 'Канал обновлений (GitHub / GitLab)'
 }
+
+EXCLUDED_DIALOGS = []
 
 INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"']
 INVALID_POSIX_CHARS = ['$']
@@ -141,6 +154,7 @@ def init():
     if not config.read('settings.ini'):
         with open('settings.ini', 'w') as cf:
             config['SETTINGS'] = settings
+            config['EXCLUDED_DIALOGS'] = {'id':','.join([str(i) for i in EXCLUDED_DIALOGS])}
             config.write(cf)
     else:
         for s in config['SETTINGS']:
@@ -151,6 +165,14 @@ def init():
                 settings[s.upper()] = True if c == 'True' else \
                                       False if c == 'False' else \
                                       c
+        if len(config['EXCLUDED_DIALOGS']['id'])>0:
+            for id in config['EXCLUDED_DIALOGS']['id'].split(','):
+                try:
+                    EXCLUDED_DIALOGS.append(int(id))
+                except ValueError:
+                    if id[0] == 'c':
+                        EXCLUDED_DIALOGS.append(2000000000+int(id[1:]))
+
 
     if settings['MEMORY_CONFIG']:
         from jconfig.memory import MemoryConfig as Config
@@ -165,7 +187,7 @@ def init():
         'blue': '\x1b[34m' if ANSI_AVAILABLE else '\x1b[36m',
         'purple': '\x1b[35m',
         'cyan': '\x1b[36m',
-        'white': '\x1b[37m',
+        'white': '\x1b[37m'
     }
     mods = {
         'nc': '\x1b[0m',
@@ -181,6 +203,7 @@ def settings_save():
 
     with open('settings.ini', 'w') as cf:
         config['SETTINGS'] = settings
+        config['EXCLUDED_DIALOGS'] = {'id':','.join([str(i) for i in EXCLUDED_DIALOGS])}
         config.write(cf)
 
     if settings['MEMORY_CONFIG']:
@@ -458,11 +481,11 @@ def dump_messages(**kwargs):
         except Exception:
             users[id] = {'name': r'{unknown user}', 'length': 3}
 
-    def time_handler(time):
+    def time_handler(t):
         # seconds -> human-readable format
         m = {'january': 'января', 'february': 'февраля', 'march': 'марта', 'april': 'апреля', 'may': 'мая', 'june': 'июня',
              'july': 'июля', 'august': 'августа', 'september': 'сентября', 'october': 'октября', 'november': 'ноября', 'december': 'декабря'}
-        t = strftime('%d %B %Y', gmtime(time)).lower().split(' ')
+        t = time.strftime('%d %B %Y', time.gmtime(t)).lower().split(' ')
         t[1] = '{'+t[1]+'}'
         return ' '.join(t).format_map(m)
 
@@ -488,7 +511,7 @@ def dump_messages(**kwargs):
                     - vk.com/dev/objects/attachments_w
         """
         r = {
-            'date': strftime('[%H:%M]', gmtime(msg['date'])),
+            'date': time.strftime('[%H:%M]', time.gmtime(msg['date'])),
             'messages': [],
             'attachments': {
                 'photos': [],
@@ -614,7 +637,7 @@ def dump_messages(**kwargs):
                             'url': at[tp]['link_mp3'],
                             'name': '{from_id}_{date}_{id}'.format(
                                 from_id=str(msg['from_id']),
-                                date=strftime('%Y_%m_%d', gmtime(msg['date'])),
+                                date=time.strftime('%Y_%m_%d', time.gmtime(msg['date'])),
                                 id=str(at[tp]['id'])),
                             'ext': 'mp3'})
                     else:
@@ -642,7 +665,7 @@ def dump_messages(**kwargs):
                             'url': at[tp]['link_mp3'],
                             'name': '{from_id}_{date}_{id}'.format(
                                 from_id=str(msg['from_id']),
-                                date=strftime('%Y_%m_%d', gmtime(msg['date'])),
+                                date=time.strftime('%Y_%m_%d', time.gmtime(msg['date'])),
                                 id=str(at[tp]['id'])),
                             'ext': 'mp3'})
 
@@ -733,6 +756,7 @@ def dump_messages(**kwargs):
 
     print('\x1b[2K  {}/{}'.format(len(conversations['items']),
                                   conversations['count']))
+    print('[будет исключено диалогов: {}]'.format(len(EXCLUDED_DIALOGS)), end='\n\n')
 
     users = {}
 
@@ -767,19 +791,75 @@ def dump_messages(**kwargs):
 
         print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(
             fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
+        if did in EXCLUDED_DIALOGS:
+            print('[исключён]\n')
+            continue
+
+        values={
+            'peer_id': con['conversation']['peer']['id'],
+            'extended': 1,
+            'fields': 'first_name, last_name'
+        }
+
+        append = {'use': settings['DIALOG_APPEND_MESSAGES'] and exists(pjoin(folder, f'{fn}.txt'))}
+        try:
+            if append['use']:
+                # [last:{id}]
+                import re
+                with open(pjoin(folder, f'{fn}.txt'), 'rb') as t:
+                    t.seek(-2, 2)
+                    while t.read(1) != b'\n':
+                        t.seek(-2, 1)
+                    last = t.readline().decode()
+
+                    r = re.match('^\[last:[0-9]+\]$', last)
+                    if r:
+                        start_message_id = int(re.search(r'\d+', r.group(0)).group(0))
+                        values['start_message_id'] = start_message_id
+
+                        t.seek(-len(last.encode('utf-8'))-2, 1)
+                        while True:
+                            while t.read(1) != b'\n':
+                                t.seek(-2, 1)
+                            tmp = t.readline().decode()
+                            r = re.match('^ {8}\[\d+ [а-я a-z]+ \d+\]$', tmp)
+                            # TODO: обработка в случае отсутствия даты (???)
+                            if r:
+                                append['prev_date'] = re.search('\d+ [а-я a-z]+ \d+', r.group(0)).group(0)
+                                break
+                            else:
+                                t.seek(-len(tmp.encode('utf-8'))-2, 1)
+                    else:
+                        values['rev'] = 1
+                        append['use'] = False
+
+            else:
+                values['rev'] = 1
+        except OSError:
+            values['rev'] = 1
+            append['use'] = False
+
         print('    [кэширование]')
         print('\x1b[2K      0/???', end='\r')
 
-        history = vk_tools.get_all(
-            method='messages.getHistory',
-            max_count=200,
-            values={
-                'peer_id': con['conversation']['peer']['id'],
-                'rev': 1,
-                'extended': 1,
-                'fields': 'first_name, last_name'
-            })
-        print('\x1b[2K      {}/{}'.format(len(history['items']), history['count']))
+        try:
+            history = vk_tools.get_all(
+                method='messages.getHistory',
+                max_count=200,
+                values=values,
+                negative_offset=append['use'])
+            print('\x1b[2K      {}/{}'.format(len(history['items']), history['count']))
+        except vk_api.exceptions.VkToolsException:
+            print('\x1b[2K      0/0')
+
+        if not history['count']:
+            print()
+            continue
+
+        if append['use']:
+            def sortById(msg):
+                return msg['id']
+            history['items'].sort(key=sortById)
 
         attachments = {
             'photos': [],
@@ -789,58 +869,84 @@ def dump_messages(**kwargs):
         }
 
         if 'attachments_only' not in kwargs:
-            with open(pjoin(folder, f'{fn}.txt'), 'w', encoding='utf-8') as f:
-                count = len(history['items'])
-                print('    [сохранение сообщений]')
-                print('      {}/{}'.format(0, count), end='\r')
-                prev = None
-                prev_date = None
+            if append['use']:
+                tmp = ''
+            else:
+                f = open(pjoin(folder, f'{fn}.txt'), 'w', encoding='utf-8')
 
-                for i in range(count):
-                    m = history['items'][i]
+            count = len(history['items'])
+            print('    [сохранение сообщений]')
+            print('      {}/{}'.format(0, count), end='\r')
+            prev = None
+            prev_date = None
 
-                    if m['from_id'] not in users:
-                        users_add(m['from_id'])
+            if append['use']:
+                prev_date = append['prev_date']
 
-                    res = message_handler(m)
+            for i in range(count):
+                m = history['items'][i]
 
-                    date = time_handler(m['date'])
-                    hold = ' ' * (users.get(m['from_id'])['length'] + 2)
+                if m['from_id'] not in users:
+                    users_add(m['from_id'])
 
-                    msg = res['date'] + ' '
-                    msg += hold if (prev and date and prev == m['from_id'] and prev_date == date) else users.get(
-                        m['from_id'])['name'] + ': '
+                res = message_handler(m)
 
-                    if res['messages']:
-                        msg += res['messages'][0] + '\n'
-                        for r in res['messages'][1:]:
-                            msg += hold + ' '*8 + r + '\n'
-                    else:
-                        msg += '\n'
+                date = time_handler(m['date'])
+                hold = ' ' * (users.get(m['from_id'])['length'] + 2)
 
-                    if settings['SAVE_DIALOG_ATTACHMENTS']:
-                        for tp in res['attachments']:
-                            for a in res['attachments'][tp]:
-                                if a not in attachments[tp]:
-                                    attachments[tp].append(a)
+                msg = res['date'] + ' '
+                msg += hold if (prev and date and prev == m['from_id'] and prev_date == date) else users.get(
+                    m['from_id'])['name'] + ': '
 
-                    if prev_date != date:
-                        if prev_date:
+                if res['messages']:
+                    msg += res['messages'][0] + '\n'
+                    for r in res['messages'][1:]:
+                        msg += hold + ' '*8 + r + '\n'
+                else:
+                    msg += '\n'
+
+                if settings['SAVE_DIALOG_ATTACHMENTS']:
+                    for tp in res['attachments']:
+                        for a in res['attachments'][tp]:
+                            if a not in attachments[tp]:
+                                attachments[tp].append(a)
+
+                if prev_date != date:
+                    if prev_date:
+                        if append['use']:
+                            tmp += '\n'
+                        else:
                             f.write('\n')
-                        f.write('        [{date}]\n'.format(date=date))
-                        prev_date = date
+                    if append['use']:
+                        tmp += f'        [{date}]\n'
+                    else:
+                        f.write(f'        [{date}]\n')
+                    prev_date = date
 
+                if append['use']:
+                    tmp += msg
+                else:
                     f.write(msg)
-                    prev = m['from_id']
-                    print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
+                prev = m['from_id']
+                print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
+
+            if append['use']:
+                import fileinput
+                for line in fileinput.FileInput(pjoin(folder, f'{fn}.txt'), inplace=1):
+                  if re.match('^\[last:[0-9]+\]$', line):
+                    line = line.replace(line, tmp+'[last:{}]\n'.format(history['items'][-1]['id']))
+                  print(line, end='')
+            else:
+                if settings['DIALOG_APPEND_MESSAGES']:
+                    f.write('[last:{}]\n'.format(history['items'][-1]['id']))
+                f.close()
         else:
             count = len(history['items'])
             print('    [обработка сообщений]')
             print('      {}/{}'.format(0, count), end='\r')
 
             for i in range(count):
-                res = message_handler(
-                    history['items'][i], attachments_only=True)
+                res = message_handler(history['items'][i], attachments_only=True)
 
                 for tp in res['attachments']:
                     for a in res['attachments'][tp]:
@@ -1108,7 +1214,7 @@ def print_slow(*args, **kwargs):
             for ch in s:
                 stdout.write(ch)
                 stdout.flush()
-                sleep(kwargs['delay'] if 'delay' in kwargs else 1 / 50)
+                time.sleep(kwargs['delay'] if 'delay' in kwargs else 1 / 50)
         else:
             print(s, end='')
     print('\x1b[?25h' if ANSI_AVAILABLE else '')
@@ -1149,7 +1255,7 @@ def welcome():
                  slow=True, delay=1 / 50)
 
     ANSI_AVAILABLE and print('\x1b[?25l')
-    sleep(2)
+    time.sleep(2)
     ANSI_AVAILABLE and print('\x1b[?25h')
 
 
@@ -1254,14 +1360,15 @@ def menu():
             if choice is not settings_screen:
                 print('\n{clr}Сохранение завершено :з{nc}'.format(
                       clr=colors['green'], nc=mods['nc']))
-                input('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
-                      clr=colors['cyan'] + mods['bold'], nc=mods['nc']))
+                print('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
+                      clr=colors['cyan'] + mods['bold'], nc=mods['nc']), end='')
+                input()
             menu()
         else:
             raise IndexError
     except IndexError:
         print_center('Выберите действие из доступных', color='red', mode='bold')
-        sleep(2)
+        time.sleep(2)
         clear()
         menu()
     except ValueError:
@@ -1305,14 +1412,15 @@ def menu_dump_fave():
             choice()
             print('\n{clr}Сохранение завершено :з{nc}'.format(
                   clr=colors['green'], nc=mods['nc']))
-            input('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
-                  clr=colors['cyan'] + mods['bold'], nc=mods['nc']))
+            print('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
+                  clr=colors['cyan'] + mods['bold'], nc=mods['nc']), end='')
+            input()
             menu_dump_fave()
         else:
             raise IndexError
     except IndexError:
         print_center('Выберите действие из доступных', color='red', mode='bold')
-        sleep(2)
+        time.sleep(2)
         clear()
         menu_dump_fave()
     except ValueError:
@@ -1365,12 +1473,13 @@ def settings_screen():
             else:
                 while (type(new) is not type(settings[s])) or (s == 'REPLACE_CHAR' and new in INVALID_CHARS):
                     try:
-                        new = input('\nВведите новое значение для {clr}{}{nc} ({type_clr}{type}{nc})\n> '.format(
+                        print('\nВведите новое значение для {clr}{}{nc} ({type_clr}{type}{nc})\n> '.format(
                             s,
                             clr=colors['red'],
                             type_clr=colors['yellow'],
                             nc=mods['nc'],
-                            type=type(settings[s])))
+                            type=type(settings[s])), end='')
+                        new = input()
                         if not new:
                             new = settings[s]
                             break
@@ -1385,7 +1494,7 @@ def settings_screen():
     except IndexError:
         print_center('Выберите одну из доступных настроек',
                      color='red', mode='bold')
-        sleep(2)
+        time.sleep(2)
         clear()
         settings_screen()
     except ValueError:
