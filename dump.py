@@ -3,8 +3,8 @@ import argparse
 from configparser import ConfigParser
 import logging
 
-from os import getcwd, cpu_count, name as osname, get_terminal_size, makedirs, remove, walk, listdir
-from os.path import exists, join as pjoin
+import os
+import os.path
 from sys import stdout
 import time
 
@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.6'
+VERSION = '0.8.7'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -41,7 +41,7 @@ dump.add_argument('--dump', type=str, nargs='*',
                            'fave_posts', 'fave_photos', 'fave_videos', 'all'),
                   help='Данные для сохранения.')
 
-AVAILABLE_THREADS = cpu_count()
+AVAILABLE_THREADS = os.cpu_count()
 
 settings = {
     'UPDATE_CHANNEL': True,  # канал для получения обновлений; true - GitHub, false - GitLab
@@ -100,9 +100,9 @@ def update(**kwargs):
     else:
         res = get('https://gitlab.com/api/v4/projects/10503487/releases').json()[0]
     if 'tag_name' in res:
-        cv = int(VERSION.replace('.', ''))
-        nv = int(res['tag_name'].split('v')[1].replace('.', ''))
-        if (nv > cv):
+        cv = VERSION.split('.')
+        nv = res['tag_name'].split('v')[1].split('.')
+        if (nv[0]>cv[0]) or (nv[0]==cv[0] and nv[1]>cv[1]) or (nv[0]==cv[0] and nv[1]==cv[1] and nv[2]>cv[2]):
             for a in (res['assets'] if settings['UPDATE_CHANNEL'] else res['assets']['links']):
                 if 'name' in a and a['name'] == 'dump.py':
                     if quite:
@@ -110,7 +110,7 @@ def update(**kwargs):
                     else:
                         print_center('Найдена новая версия ({})'.format(
                                      res['tag_name']), color='green', mod='bold', offset=-2)
-                    if download((a['browser_download_url'] if settings['UPDATE_CHANNEL'] else a['url']), getcwd(), force=True, text_mode=True):
+                    if download((a['browser_download_url'] if settings['UPDATE_CHANNEL'] else a['url']), os.getcwd(), force=True, text_mode=True):
                         if quite:
                             print('Обновление успешно!\nПерезапустите программу вручную :3')
                         else:
@@ -134,7 +134,7 @@ def init():
 
     args = parser.parse_args()
 
-    if osname == 'nt':
+    if os.name == 'nt':
         from platform import platform
         if int(platform().split('-')[1]) < 10:
             import colorama
@@ -144,7 +144,7 @@ def init():
             from subprocess import call
             call('', shell=True)
             ANSI_AVAILABLE = True
-    elif osname == 'posix':
+    elif os.name == 'posix':
         INVALID_CHARS += INVALID_POSIX_CHARS
         ANSI_AVAILABLE = True
 
@@ -179,7 +179,7 @@ def init():
     else:
         from jconfig.jconfig import Config
 
-    w, h = get_terminal_size()
+    w, h = os.get_terminal_size()
     colors = {
         'red': '\x1b[31m',
         'green': '\x1b[32m',
@@ -193,7 +193,7 @@ def init():
         'nc': '\x1b[0m',
         'bold': '\x1b[1m'
     }
-    makedirs('dump', exist_ok=True)
+    os.makedirs('dump', exist_ok=True)
 
 
 def settings_save():
@@ -207,8 +207,8 @@ def settings_save():
         config.write(cf)
 
     if settings['MEMORY_CONFIG']:
-        if exists('vk_config.v2.json'):
-            remove('vk_config.v2.json')
+        if os.path.exists('vk_config.v2.json'):
+            os.remove('vk_config.v2.json')
 
 
 def log(*msg):
@@ -296,15 +296,15 @@ def download(obj, folder, **kwargs):
     for c in INVALID_CHARS:
         fn = fn.replace(c, settings['REPLACE_CHAR'])
 
-    if not exists(pjoin(folder, fn)) or ('force' in kwargs and kwargs['force']):
+    if not os.path.exists(os.path.join(folder, fn)) or ('force' in kwargs and kwargs['force']):
         try:
             if 'text_mode' in kwargs and kwargs['text_mode']:
                 r = requests.get(url, timeout=(30, 5))
-                with open(pjoin(folder, fn), 'w') as f:
+                with open(os.path.join(folder, fn), 'w') as f:
                     f.write(r.text)
             else:
                 r = requests.get(url, stream=True, timeout=(30, 5))
-                with open(pjoin(folder, fn), 'wb') as f:
+                with open(os.path.join(folder, fn), 'wb') as f:
                     shutil.copyfileobj(r.raw, f)
             return True
         except requests.exceptions.ConnectionError:
@@ -349,22 +349,22 @@ def download_external(url, folder):
 
     YoutubeDL({
         'logger': logger,
-        'outtmpl': pjoin(folder, '%(title)s_%(id)s.%(ext)s'),
+        'outtmpl': os.path.join(folder, '%(title)s_%(id)s.%(ext)s'),
         'nooverwrites': True,
         'fixup': 'detect_or_warn'
     }).download((url,))
 
 
 def dump_photos():
-    makedirs(pjoin('dump', 'photos'), exist_ok=True)
+    os.makedirs(os.path.join('dump', 'photos'), exist_ok=True)
     albums = vk.photos.getAlbums(need_system=1)
 
     print('Сохранение фото:')
 
     for al in albums['items']:
         print('  Альбом "{}":'.format(al['title']))
-        folder = pjoin('dump', 'photos', '_'.join(al['title'].split(' ')))
-        makedirs(folder, exist_ok=True)
+        folder = os.path.join('dump', 'photos', '_'.join(al['title'].split(' ')))
+        os.makedirs(folder, exist_ok=True)
 
         photos = vk_tools.get_all(
             method='photos.get',
@@ -385,15 +385,15 @@ def dump_photos():
             with Pool(settings['POOL_PROCESSES']) as pool:
                 pool.starmap(download, zip(objs, itertools.repeat(folder)))
             print(
-                '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
+                '\x1b[2K    {}/{}'.format(len(next(os.walk(folder))[2]), photos['count']))
 
 
 # Audi was here
 
 
 def dump_video():
-    folder = pjoin('dump', 'video')
-    makedirs(folder, exist_ok=True)
+    folder = os.path.join('dump', 'video')
+    os.makedirs(folder, exist_ok=True)
 
     print('Сохранение видео:')
 
@@ -406,8 +406,8 @@ def dump_video():
 
     for al in albums['items']:
         print('  Альбом "{}":'.format(al['title']))
-        folder = pjoin('dump', 'video', '_'.join(al['title'].split(' ')))
-        makedirs(folder, exist_ok=True)
+        folder = os.path.join('dump', 'video', '_'.join(al['title'].split(' ')))
+        os.makedirs(folder, exist_ok=True)
 
         video = vk_tools.get_all(
             method='video.get',
@@ -428,12 +428,12 @@ def dump_video():
                 pool.starmap(download_video, zip(
                     objs, itertools.repeat(folder)))
             print(
-                '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
+                '\x1b[2K    {}/{}'.format(len(next(os.walk(folder))[2]), video['count']))
 
 
 def dump_docs():
-    folder = pjoin('dump', 'docs')
-    makedirs(folder, exist_ok=True)
+    folder = os.path.join('dump', 'docs')
+    os.makedirs(folder, exist_ok=True)
 
     print('[получение списка документов]')
 
@@ -455,7 +455,7 @@ def dump_docs():
         print('  .../{}'.format(docs['count']), end='\r')
         with Pool(settings['POOL_PROCESSES']) as pool:
             pool.starmap(download, zip(objs, itertools.repeat(folder)))
-        print('\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), docs['count']))
+        print('\x1b[2K  {}/{}'.format(len(next(os.walk(folder))[2]), docs['count']))
 
 
 def dump_messages(**kwargs):
@@ -740,8 +740,8 @@ def dump_messages(**kwargs):
 
         return r
 
-    folder = pjoin('dump', 'dialogs')
-    makedirs(folder, exist_ok=True)
+    folder = os.path.join('dump', 'dialogs')
+    os.makedirs(folder, exist_ok=True)
 
     print('[получение диалогов...]')
     print('\x1b[2K  0/???', end='\r')
@@ -781,18 +781,17 @@ def dump_messages(**kwargs):
             dialog_name = dialog_name.replace(c, settings['REPLACE_CHAR'])
 
         fn = '{}_{id}'.format('_'.join(dialog_name.split(' ')), id=did)
-        for n in listdir(folder):
+        for n in os.listdir(folder):
             if str(did) == n.split('.txt')[0].split('_')[-1]:
                 if settings['KEEP_DIALOG_NAMES']:
                     fn = n.split('.txt')[0]
                 else:
-                    shutil.move(pjoin(folder, n), pjoin(folder, '{}_{id}'.format('_'.join(dialog_name.split(' ')),
+                    shutil.move(os.path.join(folder, n), os.path.join(folder, '{}_{id}'.format('_'.join(dialog_name.split(' ')),
                                                                                  id=did) + ('.txt' if '.txt' in n else '')))
 
-        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(
-            fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
+        print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
         if did in EXCLUDED_DIALOGS:
-            print('[исключён]\n')
+            print('    [исключён]\n')
             continue
 
         values={
@@ -801,12 +800,12 @@ def dump_messages(**kwargs):
             'fields': 'first_name, last_name'
         }
 
-        append = {'use': settings['DIALOG_APPEND_MESSAGES'] and exists(pjoin(folder, f'{fn}.txt'))}
+        append = {'use': not ('attachments_only' in kwargs and kwargs['attachments_only']) and settings['DIALOG_APPEND_MESSAGES'] and os.path.exists(os.path.join(folder, f'{fn}.txt'))}
         try:
             if append['use']:
                 # [last:{id}]
                 import re
-                with open(pjoin(folder, f'{fn}.txt'), 'rb') as t:
+                with open(os.path.join(folder, f'{fn}.txt'), 'rb') as t:
                     t.seek(-2, 2)
                     while t.read(1) != b'\n':
                         t.seek(-2, 1)
@@ -868,11 +867,11 @@ def dump_messages(**kwargs):
             'audio_messages': []
         }
 
-        if 'attachments_only' not in kwargs:
+        if ('attachments_only' not in kwargs) or (kwargs['attachments_only'] == False):
             if append['use']:
                 tmp = ''
             else:
-                f = open(pjoin(folder, f'{fn}.txt'), 'w', encoding='utf-8')
+                f = open(os.path.join(folder, f'{fn}.txt'), 'w', encoding='utf-8')
 
             count = len(history['items'])
             print('    [сохранение сообщений]')
@@ -905,6 +904,10 @@ def dump_messages(**kwargs):
                 else:
                     msg += '\n'
 
+                for a in res['attachments']['audio_messages']:
+                    if a not in attachments['audio_messages']:
+                        attachments['audio_messages'].append(a)
+
                 if settings['SAVE_DIALOG_ATTACHMENTS']:
                     for tp in res['attachments']:
                         for a in res['attachments'][tp]:
@@ -931,15 +934,28 @@ def dump_messages(**kwargs):
                 print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
 
             if append['use']:
-                import fileinput
-                for line in fileinput.FileInput(pjoin(folder, f'{fn}.txt'), inplace=1):
-                  if re.match('^\[last:[0-9]+\]$', line):
-                    line = line.replace(line, tmp+'[last:{}]\n'.format(history['items'][-1]['id']))
-                  print(line, end='')
+                import codecs
+
+                orig_file = os.path.join(folder, f'{fn}.txt')
+                tmp_file = os.path.join(folder, f'{fn}.new')
+
+                try:
+                    with codecs.open(orig_file, 'r', encoding='utf-8') as fi,\
+                         codecs.open(tmp_file, 'w', encoding='utf-8') as fo:
+
+                        for line in fi:
+                            if re.match('^\[last:[0-9]+\]$', line):
+                                line = tmp+'[last:{}]\n'.format(history['items'][-1]['id'])
+                            fo.write(line)
+                    os.remove(orig_file)
+                    os.rename(tmp_file, orig_file)
+                except Exception:
+                    os.remove(tmp_file)
             else:
                 if settings['DIALOG_APPEND_MESSAGES']:
                     f.write('[last:{}]\n'.format(history['items'][-1]['id']))
                 f.close()
+            print()
         else:
             count = len(history['items'])
             print('    [обработка сообщений]')
@@ -954,31 +970,44 @@ def dump_messages(**kwargs):
                             attachments[tp].append(a)
 
                 print('\x1b[2K      {}/{}'.format(i+1, count), end='\r')
-
-        if settings['SAVE_DIALOG_ATTACHMENTS'] or ('attachments_only' in kwargs and kwargs['attachments_only']):
-            at_folder = pjoin(folder, fn)
-            makedirs(at_folder, exist_ok=True)
-
             print()
 
+        if attachments['audio_messages']:
+            at_folder = os.path.join(folder, fn)
+            af = os.path.join(at_folder, 'Голосовые')
+            os.makedirs(af, exist_ok=True)
+
+            print('    [сохранение голосовых сообщений]')
+            print('      .../{}'.format(len(attachments['audio_messages'])), end='\r')
+
+            with Pool(settings['POOL_PROCESSES']) as pool:
+                pool.starmap(download, zip(
+                    attachments['audio_messages'], itertools.repeat(af)))
+
+            print('\x1b[2K      {}/{}'.format(len(next(os.walk(af))[2]),
+                                              len(attachments['audio_messages'])))
+
+        if settings['SAVE_DIALOG_ATTACHMENTS'] or ('attachments_only' in kwargs and kwargs['attachments_only']):
+            at_folder = os.path.join(folder, fn)
+            os.makedirs(at_folder, exist_ok=True)
+
             if attachments['photos']:
-                af = pjoin(at_folder, 'Фото')
-                makedirs(af, exist_ok=True)
+                af = os.path.join(at_folder, 'Фото')
+                os.makedirs(af, exist_ok=True)
 
                 print('    [сохранение фото]')
-                print(
-                    '      .../{}'.format(len(attachments['photos'])), end='\r')
+                print('      .../{}'.format(len(attachments['photos'])), end='\r')
 
                 with Pool(settings['POOL_PROCESSES']) as pool:
                     pool.starmap(download, zip(
                         attachments['photos'], itertools.repeat(af)))
 
-                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
+                print('\x1b[2K      {}/{}'.format(len(next(os.walk(af))[2]),
                                                   len(attachments['photos'])))
 
             if attachments['video_ids']:
-                af = pjoin(at_folder, 'Видео')
-                makedirs(af, exist_ok=True)
+                af = os.path.join(at_folder, 'Видео')
+                os.makedirs(af, exist_ok=True)
 
                 videos = vk_tools.get_all(
                     method='video.get',
@@ -1000,39 +1029,21 @@ def dump_messages(**kwargs):
                     None
 
                 print(
-                    '\x1b[2K      {}/{}'.format(len(next(walk(af))[2]), len(videos['items'])))
+                    '\x1b[2K      {}/{}'.format(len(next(os.walk(af))[2]), len(videos['items'])))
 
             if attachments['docs']:
-                af = pjoin(at_folder, 'Документы')
-                makedirs(af, exist_ok=True)
+                af = os.path.join(at_folder, 'Документы')
+                os.makedirs(af, exist_ok=True)
 
                 print('    [сохранение документов]')
-                print(
-                    '      .../{}'.format(len(attachments['docs'])), end='\r')
+                print('      .../{}'.format(len(attachments['docs'])), end='\r')
 
                 with Pool(settings['POOL_PROCESSES']) as pool:
                     pool.starmap(download, zip(
                         attachments['docs'], itertools.repeat(af)))
 
-                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
+                print('\x1b[2K      {}/{}'.format(len(next(os.walk(af))[2]),
                                                   len(attachments['docs'])))
-
-            if attachments['audio_messages']:
-                af = pjoin(at_folder, 'Голосовые')
-                makedirs(af, exist_ok=True)
-
-                print('    [сохранение голосовых сообщений]')
-                print(
-                    '      .../{}'.format(len(attachments['audio_messages'])), end='\r')
-
-                with Pool(settings['POOL_PROCESSES']) as pool:
-                    pool.starmap(download, zip(
-                        attachments['audio_messages'], itertools.repeat(af)))
-
-                print('\x1b[2K      {}/{}'.format(len(next(walk(af))[2]),
-                                                  len(attachments['audio_messages'])))
-
-        print()
         print()
 
 
@@ -1041,12 +1052,12 @@ def dump_attachments_only():
 
 
 def dump_fave_posts():
-    folder_photos = pjoin('dump', 'photos', 'Понравившиеся')
-    makedirs(folder_photos, exist_ok=True)
-    folder_videos = pjoin('dump', 'video', 'Понравившиеся')
-    makedirs(folder_videos, exist_ok=True)
-    folder_docs = pjoin('dump', 'docs', 'Понравившиеся')
-    makedirs(folder_docs, exist_ok=True)
+    folder_photos = os.path.join('dump', 'photos', 'Понравившиеся')
+    os.makedirs(folder_photos, exist_ok=True)
+    folder_videos = os.path.join('dump', 'video', 'Понравившиеся')
+    os.makedirs(folder_videos, exist_ok=True)
+    folder_docs = os.path.join('dump', 'docs', 'Понравившиеся')
+    os.makedirs(folder_docs, exist_ok=True)
 
     print('[получение постов]')
 
@@ -1137,8 +1148,8 @@ def dump_fave_posts():
 
 
 def dump_fave_photos():
-    folder = pjoin('dump', 'photos', 'Понравившиеся')
-    makedirs(folder, exist_ok=True)
+    folder = os.path.join('dump', 'photos', 'Понравившиеся')
+    os.makedirs(folder, exist_ok=True)
 
     print('[получение понравившихся фото]')
 
@@ -1162,12 +1173,12 @@ def dump_fave_photos():
         with Pool(settings['POOL_PROCESSES']) as pool:
             pool.starmap(download, zip(objs, itertools.repeat(folder)))
         print(
-            '\x1b[2K  {}/{}'.format(len(next(walk(folder))[2]), photos['count']))
+            '\x1b[2K  {}/{}'.format(len(next(os.walk(folder))[2]), photos['count']))
 
 
 def dump_fave_videos():
     folder = pjoin('dump', 'video', 'Понравившиеся')
-    makedirs(folder, exist_ok=True)
+    os.makedirs(folder, exist_ok=True)
 
     print('[получение понравившихся видео]')
 
@@ -1195,7 +1206,7 @@ def dump_fave_videos():
         except MaybeEncodingError:
             None
         print(
-            '\x1b[2K    {}/{}'.format(len(next(walk(folder))[2]), video['count']))
+            '\x1b[2K    {}/{}'.format(len(next(os.walk(folder))[2]), video['count']))
 
 
 def dump_all():
