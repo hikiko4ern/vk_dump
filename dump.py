@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.7'
+VERSION = '0.8.8'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -100,8 +100,8 @@ def update(**kwargs):
     else:
         res = get('https://gitlab.com/api/v4/projects/10503487/releases').json()[0]
     if 'tag_name' in res:
-        cv = VERSION.split('.')
-        nv = res['tag_name'].split('v')[1].split('.')
+        cv = [int(i) for i in VERSION.split('.')]
+        nv = [int(i) for i in res['tag_name'].split('v')[1].split('.')]
         if (nv[0]>cv[0]) or (nv[0]==cv[0] and nv[1]>cv[1]) or (nv[0]==cv[0] and nv[1]==cv[1] and nv[2]>cv[2]):
             for a in (res['assets'] if settings['UPDATE_CHANNEL'] else res['assets']['links']):
                 if 'name' in a and a['name'] == 'dump.py':
@@ -238,6 +238,7 @@ def log(*msg):
                                       config=(Config),
                                       app_id=6631721,
                                       api_version=API_VERSION,
+                                      scope=2+4+8+16+65536+131072,
                                       auth_handler=auth_handler,
                                       captcha_handler=captcha_handler)
             vk_session.auth(token_only=True, reauth=True)
@@ -1177,7 +1178,7 @@ def dump_fave_photos():
 
 
 def dump_fave_videos():
-    folder = pjoin('dump', 'video', 'Понравившиеся')
+    folder = os.path.join('dump', 'video', 'Понравившиеся')
     os.makedirs(folder, exist_ok=True)
 
     print('[получение понравившихся видео]')
