@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.8'
+VERSION = '0.8.9'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -227,21 +227,64 @@ def log(*msg):
             if args.login and not msg:
                 login = args.login
                 password = args.password if args.password else ''
+                vk_session = vk_api.VkApi(login, password,
+                                          config=(Config),
+                                          app_id=6631721,
+                                          api_version=API_VERSION,
+                                          scope=2+4+8+16+65536+131072,
+                                          auth_handler=auth_handler,
+                                          captcha_handler=captcha_handler)
             else:
+                import re
+                from json import JSONDecodeError
+                from pprint import pprint
+
                 login = input('    login: {clr}'.format(
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
                 print(mods['nc'], end='')
                 password = input('    password: {clr}'.format(
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
                 print(mods['nc'], end='')
-            vk_session = vk_api.VkApi(login, password,
-                                      config=(Config),
-                                      app_id=6631721,
-                                      api_version=API_VERSION,
-                                      scope=2+4+8+16+65536+131072,
-                                      auth_handler=auth_handler,
-                                      captcha_handler=captcha_handler)
-            vk_session.auth(token_only=True, reauth=True)
+
+                # Better auth
+
+                r1 = requests.get(f'https://oauth.vk.com/token?grant_type=password&client_id=2274003&client_secret=hHbZxrka2uZ6jB1inYsH&username={login}&password={password}&v={API_VERSION}')
+                try:
+                    t1 = r1.json()
+                    if ('error' in t1) and t1['error'] == 'invalid_client' and t1['error_type'] == 'username_or_password_is_incorrect':
+                        raise vk_api.exceptions.BadPassword
+                    elif t1['error'] == 'need_validation':
+                        r2 = requests.get(t1['redirect_uri'])
+                        t2 = re.search('login\?act=authcheck_code&hash=[0-9_a-z]+', r2.text).group(0)
+                        data = {
+                            '_ajax': 1,
+                            'code': int(input('Введите код двухфакторой аутентификации: ')),
+                            'remember': 1
+                        }
+                        r = requests.post(f'https://m.vk.com/{t2}', data=data, cookies=r2.cookies)
+                        while True:
+                            if 'access_token' in r.url:
+                                token = re.search('access_token=[0-9a-z]+', r.url).group(0)[13:]
+                                break
+                            else:
+                                captcha_url = re.search('captcha.php\?sid=[0-9]+', r.text).group(0)
+                                captcha = input(f'Введите код с картинки https://m.vk.com/{captcha_url} : ')
+                                c_data = {
+                                    'captcha_sid': captcha_url[16:],
+                                    'captcha_key': captcha
+                                }
+                                r = requests.post(r.url+'&code={}'.format(data['code']), data=c_data, cookies=r2.cookies)
+                                if 'location' in r.headers:
+                                    r = requests.get(r.headers['location'], cookies=r2.cookies)
+                    else:
+                        raise Exception(t1)
+                except JSONDecodeError:
+                    token = re.search('access_token=[0-9a-z]+', r1.url).group(0)[13:]
+
+                with open('token', 'w') as f:
+                    f.write(token)
+                vk_session = vk_api.VkApi(token=token, app_id=6631721,
+                                          auth_handler=auth_handler, api_version=API_VERSION)
         vk = vk_session.get_api()
         vk_tools = vk_api.VkTools(vk)
         account = vk.account.getProfileInfo()
