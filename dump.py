@@ -22,7 +22,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.8.9'
+VERSION = '0.8.10'
 DESCRIPTION = 'Let\'s hope for the best'
 API_VERSION = '5.92'
 
@@ -37,8 +37,8 @@ auth.add_argument('-p', '--password', type=str, metavar='\b', help='пароль
 auth.add_argument('-t', '--token', type=str, metavar='\b', help='access_token')
 dump = parser.add_argument_group('Дамп данных')
 dump.add_argument('--dump', type=str, nargs='*',
-                  choices=('photos', 'video', 'docs', 'messages', 'attachments',
-                           'fave_posts', 'fave_photos', 'fave_videos', 'all'),
+                  choices=('photos', 'docs', 'messages', 'attachments',
+                           'fave_posts', 'fave_photos', 'all'),
                   help='Данные для сохранения.')
 
 AVAILABLE_THREADS = os.cpu_count()
@@ -53,7 +53,6 @@ settings = {
     'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
 
     'POOL_PROCESSES': 4*AVAILABLE_THREADS,  # макс. число создаваемых процессов
-    'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
 
     'DIALOG_APPEND_MESSAGES': False,  # дописывать новые сообщения в файл вместо полной перезаписи
     'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога
@@ -70,9 +69,7 @@ settings_names = {
     'REPLACE_CHAR': 'Символ для замены запрещённых в имени файла',
 
     'POOL_PROCESSES': 'Число создаваемых процессов при мультипоточной загрузке',
-    'LIMIT_VIDEO_PROCESSES': 'Ограничивать число процессов при загрузке видео',
 
-    # TODO: название
     'DIALOG_APPEND_MESSAGES': 'Дописывать новые сообщения в файл вместо полной перезаписи',
     'KEEP_DIALOG_NAMES': 'Сохранять название диалога в случае его изменения',
     'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов',
@@ -231,14 +228,10 @@ def log(*msg):
                                           config=(Config),
                                           app_id=6631721,
                                           api_version=API_VERSION,
-                                          scope=2+4+8+16+65536+131072,
+                                          scope=2+4+8+65536+131072,
                                           auth_handler=auth_handler,
                                           captcha_handler=captcha_handler)
             else:
-                import re
-                from json import JSONDecodeError
-                from pprint import pprint
-
                 login = input('    login: {clr}'.format(
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
                 print(mods['nc'], end='')
@@ -246,45 +239,14 @@ def log(*msg):
                     clr=colors['cyan'] if ANSI_AVAILABLE else ''))
                 print(mods['nc'], end='')
 
-                # Better auth
-
-                r1 = requests.get(f'https://oauth.vk.com/token?grant_type=password&client_id=2274003&client_secret=hHbZxrka2uZ6jB1inYsH&username={login}&password={password}&v={API_VERSION}')
-                try:
-                    t1 = r1.json()
-                    if ('error' in t1) and t1['error'] == 'invalid_client' and t1['error_type'] == 'username_or_password_is_incorrect':
-                        raise vk_api.exceptions.BadPassword
-                    elif t1['error'] == 'need_validation':
-                        r2 = requests.get(t1['redirect_uri'])
-                        t2 = re.search('login\?act=authcheck_code&hash=[0-9_a-z]+', r2.text).group(0)
-                        data = {
-                            '_ajax': 1,
-                            'code': int(input('Введите код двухфакторой аутентификации: ')),
-                            'remember': 1
-                        }
-                        r = requests.post(f'https://m.vk.com/{t2}', data=data, cookies=r2.cookies)
-                        while True:
-                            if 'access_token' in r.url:
-                                token = re.search('access_token=[0-9a-z]+', r.url).group(0)[13:]
-                                break
-                            else:
-                                captcha_url = re.search('captcha.php\?sid=[0-9]+', r.text).group(0)
-                                captcha = input(f'Введите код с картинки https://m.vk.com/{captcha_url} : ')
-                                c_data = {
-                                    'captcha_sid': captcha_url[16:],
-                                    'captcha_key': captcha
-                                }
-                                r = requests.post(r.url+'&code={}'.format(data['code']), data=c_data, cookies=r2.cookies)
-                                if 'location' in r.headers:
-                                    r = requests.get(r.headers['location'], cookies=r2.cookies)
-                    else:
-                        raise Exception(t1)
-                except JSONDecodeError:
-                    token = re.search('access_token=[0-9a-z]+', r1.url).group(0)[13:]
-
-                with open('token', 'w') as f:
-                    f.write(token)
-                vk_session = vk_api.VkApi(token=token, app_id=6631721,
-                                          auth_handler=auth_handler, api_version=API_VERSION)
+                vk_session = vk_api.VkApi(login, password,
+                                          config=(Config),
+                                          app_id=6631721,
+                                          api_version=API_VERSION,
+                                          scope=2+4+8+65536+131072,
+                                          auth_handler=auth_handler,
+                                          captcha_handler=captcha_handler)
+                vk_session.auth(token_only=True, reauth=True)
         vk = vk_session.get_api()
         vk_tools = vk_api.VkTools(vk)
         account = vk.account.getProfileInfo()
@@ -361,30 +323,7 @@ def download(obj, folder, **kwargs):
             raise e
 
 
-def download_video(v, folder):
-    if 'platform' in v:
-        return download_external(v['player'], folder)
-    else:
-        if 'player' not in v:
-            return False
-        if 'height' not in v:
-            v['height'] = 480 if 'photo_800' in v else \
-                          360 if 'photo_320' in v else \
-                          240
-
-        url = v['player'] if ('access_key' not in v) else f"{v['player']}?access_key={v['access_key']}"
-        data = urlopen(url).read()
-        try:
-            download(
-                research(b'https://cs.*vkuservideo.*'
-                         + str(min(v['height'], v['width']) if ('width' in v) else v['height']).encode()
-                         + b'.mp4', data).group(0).decode(),
-                folder,
-                name=v['title'] + '_' + str(v['id']),
-                ext='mp4'
-            )
-        except AttributeError:
-            return False
+# V means Vendetta
 
 
 def download_external(url, folder):
@@ -435,44 +374,7 @@ def dump_photos():
 # Audi was here
 
 
-def dump_video():
-    folder = os.path.join('dump', 'video')
-    os.makedirs(folder, exist_ok=True)
-
-    print('Сохранение видео:')
-
-    albums = vk_tools.get_all(
-        method='video.getAlbums',
-        max_count=100,
-        values={
-            'need_system': 1
-        })
-
-    for al in albums['items']:
-        print('  Альбом "{}":'.format(al['title']))
-        folder = os.path.join('dump', 'video', '_'.join(al['title'].split(' ')))
-        os.makedirs(folder, exist_ok=True)
-
-        video = vk_tools.get_all(
-            method='video.get',
-            max_count=200,
-            values={
-                'album_id': al['id']
-            })
-
-        if video['count'] == 0:
-            print('    0/0')
-        else:
-            objs = []
-            for v in video['items']:
-                objs.append(v)
-
-            print('    .../{}'.format(video['count']), end='\r')
-            with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
-                pool.starmap(download_video, zip(
-                    objs, itertools.repeat(folder)))
-            print(
-                '\x1b[2K    {}/{}'.format(len(next(os.walk(folder))[2]), video['count']))
+# Vanadium 23
 
 
 def dump_docs():
@@ -542,8 +444,8 @@ def dump_messages(**kwargs):
                 "messages": [...],
                 "attachments": {
                     "photos": [...],
-                    "video_ids": [...],
-                    "docs": [...]
+                    "docs": [...],
+                    "audio_messages": [...]
                 }
             }
         """"""
@@ -559,7 +461,6 @@ def dump_messages(**kwargs):
             'messages': [],
             'attachments': {
                 'photos': [],
-                'video_ids': [],
                 'docs': [],
                 'audio_messages': []
             }
@@ -620,12 +521,6 @@ def dump_messages(**kwargs):
                     elif tp == 'video':
                         r['messages'].append(
                             '[видео: vk.com/video{owid}_{id}]'.format(owid=at[tp]['owner_id'], id=at[tp]['id']))
-                        r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
-                            oid=at[tp]['owner_id'],
-                            id=at[tp]['id'],
-                            access_key='_'
-                            + at[tp]['access_key'] if 'access_key' in at[tp] else ''
-                        ))
                     elif tp == 'audio':
                         r['messages'].append('[аудио: {artist} - {title}]'.format(artist=at[tp]
                                                                                   ['artist'], title=at[tp]['title']))
@@ -691,13 +586,7 @@ def dump_messages(**kwargs):
                     if tp == 'photo':
                         r['attachments']['photos'].append(
                             at[tp]['sizes'][-1]['url'])
-                    elif tp == 'video':
-                        r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
-                            oid=at[tp]['owner_id'],
-                            id=at[tp]['id'],
-                            access_key='_'
-                            + at[tp]['access_key'] if 'access_key' in at[tp] else ''
-                        ))
+                    # 1.08V
                     elif tp == 'doc':
                         r['attachments']['docs'].append({
                             'url': at[tp]['url'],
@@ -906,7 +795,6 @@ def dump_messages(**kwargs):
 
         attachments = {
             'photos': [],
-            'video_ids': [],
             'docs': [],
             'audio_messages': []
         }
@@ -1049,31 +937,7 @@ def dump_messages(**kwargs):
                 print('\x1b[2K      {}/{}'.format(len(next(os.walk(af))[2]),
                                                   len(attachments['photos'])))
 
-            if attachments['video_ids']:
-                af = os.path.join(at_folder, 'Видео')
-                os.makedirs(af, exist_ok=True)
-
-                videos = vk_tools.get_all(
-                    method='video.get',
-                    max_count=200,
-                    values={
-                        'videos': ','.join(attachments['video_ids']),
-                        'extended': 1
-                    }
-                )
-
-                print('    [сохранение видео]')
-                print('      .../{}'.format(len(videos['items'])), end='\r')
-
-                try:
-                    with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
-                        pool.starmap(download_video, zip(
-                            videos['items'], itertools.repeat(af)))
-                except MaybeEncodingError:
-                    None
-
-                print(
-                    '\x1b[2K      {}/{}'.format(len(next(os.walk(af))[2]), len(videos['items'])))
+            # 3.3V
 
             if attachments['docs']:
                 af = os.path.join(at_folder, 'Документы')
@@ -1098,8 +962,7 @@ def dump_attachments_only():
 def dump_fave_posts():
     folder_photos = os.path.join('dump', 'photos', 'Понравившиеся')
     os.makedirs(folder_photos, exist_ok=True)
-    folder_videos = os.path.join('dump', 'video', 'Понравившиеся')
-    os.makedirs(folder_videos, exist_ok=True)
+    # 5V
     folder_docs = os.path.join('dump', 'docs', 'Понравившиеся')
     os.makedirs(folder_docs, exist_ok=True)
 
@@ -1119,8 +982,6 @@ def dump_fave_posts():
     del filtered_posts
 
     photos = []
-    video_ids = []
-    videos = []
     docs = []
 
     for p in posts:
@@ -1133,13 +994,7 @@ def dump_fave_posts():
                     if 'access_key' in at['photo']:
                         obj.update({'access_key': at['photo']['access_key']})
                     photos.append(obj)
-                elif at['type'] == 'video':
-                    video_ids.append('{oid}_{id}{access_key}'.format(
-                        oid=at['video']['owner_id'],
-                        id=at['video']['id'],
-                        access_key='_'
-                        + at['video']['access_key'] if 'access_key' in at['video'] else ''
-                    ))
+                # 9V
                 elif at['type'] == 'doc':
                     obj = {
                         'url': at['doc']['url'],
@@ -1150,18 +1005,10 @@ def dump_fave_posts():
                         obj.update({'access_key': at['doc']['access_key']})
                     docs.append(obj)
 
-    if video_ids:
-        videos = vk_tools.get_all(
-            method='video.get',
-            max_count=200,
-            values={
-                'videos': ','.join(video_ids),
-                'extended': 1
-            }
-        )
+    # 12V
 
     print('Сохранение ({} вложений из {} постов):'.format(
-        sum([len(photos), len(videos), len(docs)]), len(posts)))
+        sum([len(photos), len(docs)]), len(posts)))
 
     try:
         if photos:
@@ -1172,14 +1019,7 @@ def dump_fave_posts():
     except MaybeEncodingError:
         None
 
-    try:
-        if videos:
-            print('  [видео ({}/{})]'.format(len(videos['items']), len(video_ids)))
-            with Pool(settings['POOL_PROCESSES'] if not settings['LIMIT_VIDEO_PROCESSES'] else AVAILABLE_THREADS) as pool:
-                pool.starmap(download_video, zip(
-                    videos['items'], itertools.repeat(folder_videos)))
-    except MaybeEncodingError:
-        None
+    # 24V
 
     try:
         if docs:
@@ -1220,41 +1060,11 @@ def dump_fave_photos():
             '\x1b[2K  {}/{}'.format(len(next(os.walk(folder))[2]), photos['count']))
 
 
-def dump_fave_videos():
-    folder = os.path.join('dump', 'video', 'Понравившиеся')
-    os.makedirs(folder, exist_ok=True)
-
-    print('[получение понравившихся видео]')
-
-    video = vk_tools.get_all(
-        method='fave.getVideos',
-        max_count=50,
-        values={
-            'extended': 1
-        })
-
-    print('Сохранение понравившихся видео:')
-
-    if video['count'] == 0:
-        print('    0/0')
-    else:
-        objs = []
-        for v in video['items']:
-            objs.append(v)
-
-        print('    .../{}'.format(video['count']), end='\r')
-        try:
-            with Pool(AVAILABLE_THREADS if settings['LIMIT_VIDEO_PROCESSES'] else settings['POOL_PROCESSES']) as pool:
-                pool.starmap(download_video, zip(
-                    objs, itertools.repeat(folder)))
-        except MaybeEncodingError:
-            None
-        print(
-            '\x1b[2K    {}/{}'.format(len(next(os.walk(folder))[2]), video['count']))
+# V-list inf
 
 
 def dump_all():
-    for d in (dump_photos, dump_video, dump_docs, dump_messages, dump_fave_posts, dump_fave_photos, dump_fave_videos):
+    for d in (dump_photos, dump_docs, dump_messages, dump_fave_posts, dump_fave_photos):
         d()
         print()
 
@@ -1373,7 +1183,6 @@ def menu():
 
     actions = [
         'Фото (по альбомам)', dump_photos,
-        'Видео (по альбомам)', dump_video,
         'Документы', dump_docs,
         'Сообщения', dump_messages,
         'Вложения диалогов', dump_attachments_only,
@@ -1440,9 +1249,8 @@ def menu_dump_fave():
     print()
 
     actions = [
-        'Вложения понравившихся постов (фото, видео, документы)', dump_fave_posts,
-        'Фото (отдельно)', dump_fave_photos,
-        'Видео (отдельно)', dump_fave_videos
+        'Вложения понравившихся постов (фото, документы)', dump_fave_posts,
+        'Фото (отдельно)', dump_fave_photos
     ]
 
     print('Дамп понравившихся вложений:\n')
@@ -1578,8 +1386,6 @@ if __name__ == '__main__':
             for d in args.dump:
                 if d == 'photos':
                     dump_photos()
-                elif d == 'video':
-                    dump_video()
                 elif d == 'docs':
                     dump_docs()
                 elif d == 'messages':
@@ -1590,8 +1396,6 @@ if __name__ == '__main__':
                     dump_fave_posts()
                 elif d == 'fave_photos':
                     dump_fave_photos()
-                elif d == 'fave_videos':
-                    dump_fave_videos()
                 elif d == 'all':
                     dump_all()
                 print()
