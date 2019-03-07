@@ -1,0 +1,4 @@
+vk_api==11.4.0
+bs4==0.0.1
+youtube_dl>=2019.03.01
+multiprocess>=0.70.7

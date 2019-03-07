@@ -1,0 +1,11 @@
+# Cache
+.idea
+__pycache__
+
+# Dump folder
+dump
+
+# Configs & cache
+vk_config*json
+settings.ini
+users.json
