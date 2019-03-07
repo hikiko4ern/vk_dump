@@ -6,7 +6,6 @@ import json
 import shutil
 import itertools
 from multiprocess import Pool
-from multiprocess.pool import MaybeEncodingError
 from operator import itemgetter
 
 from vk_api.exceptions import VkToolsException
@@ -69,9 +68,9 @@ def message_handler(dmp, msg, **kwargs):
             "date": str, # [HH:MM]
             "messages": [...],
             "attachments": {
-                "photos": [...],
-                "video_ids": [...],
-                "docs": [...]
+                "photo": [...],
+                "docs": [...],
+                "audio_messages": [...]
             }
         }
 
@@ -88,8 +87,7 @@ def message_handler(dmp, msg, **kwargs):
         'date': time.strftime('[%H:%M]', time.gmtime(msg['date'])),
         'messages': [],
         'attachments': {
-            'photos': [],
-            'video_ids': [],
+            'photo': [],
             'docs': [],
             'audio_messages': []
         }
@@ -141,15 +139,10 @@ def message_handler(dmp, msg, **kwargs):
                 if 'action' not in msg:
                     at[tp]['sizes'].sort(key=itemgetter('width', 'height'))
                     r['messages'].append('[фото: {}]'.format(at[tp]['sizes'][-1]['url']))
-                    r['attachments']['photos'].append(at[tp]['sizes'][-1]['url'])
+                    r['attachments']['photo'].append(at[tp]['sizes'][-1]['url'])
             elif tp == 'video':
                 r['messages'].append('[видео: vk.com/video{oid}_{id}]'.format(
                     oid=at[tp]['owner_id'], id=at[tp]['id']))
-                r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
-                    oid=at[tp]['owner_id'],
-                    id=at[tp]['id'],
-                    access_key='_' + (at[tp]['access_key'] if 'access_key' in at[tp] else '')
-                ))
             elif tp == 'audio':
                 r['messages'].append('[аудио: {artist} - {title}]'.format(
                     artist=at[tp]['artist'], title=at[tp]['title']))
@@ -224,7 +217,7 @@ def message_handler(dmp, msg, **kwargs):
                 member=users[msg['from_id']]['name'],
                 url=msg['attachments'][0]['photo']['sizes'][-1]['url']
             ))
-            r['attachments']['photos'].append(msg['attachments'][0]['photo']['sizes'][-1]['url'])
+            r['attachments']['photo'].append(msg['attachments'][0]['photo']['sizes'][-1]['url'])
         elif tp == 'chat_photo_remove':
             r['messages'].append('[{member} удалил фотографию беседы]'.format(
                 member=users[msg['from_id']]['name']
@@ -393,8 +386,7 @@ def dump_messages(dmp, **kwargs):
             history['items'].sort(key=sortById)
 
         attachments = {
-            'photos': [],
-            'video_ids': [],
+            'photo': [],
             'docs': [],
             'audio_messages': []
         }
@@ -507,46 +499,19 @@ def dump_messages(dmp, **kwargs):
             at_folder = os.path.join(folder, fn)
             os.makedirs(at_folder, exist_ok=True)
 
-            if attachments['photos']:
+            if attachments['photo']:
                 af = os.path.join(at_folder, 'Фото')
                 os.makedirs(af, exist_ok=True)
 
                 print('    [сохранение фото]')
-                print('      .../{}'.format(len(attachments['photos'])), end='\r')
+                print('      .../{}'.format(len(attachments['photo'])), end='\r')
 
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                     res = pool.starmap(copy_func(dmp._download),
-                                       zip(attachments['photos'], itertools.repeat(af)))
+                                       zip(attachments['photo'], itertools.repeat(af)))
 
                 print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
-                                                              len(attachments['photos']),
-                                                              len(next(os.walk(af))[2])))
-
-            if attachments['video_ids']:
-                af = os.path.join(at_folder, 'Видео')
-                os.makedirs(af, exist_ok=True)
-
-                videos = dmp._vk_tools.get_all(
-                    method='video.get',
-                    max_count=200,
-                    values={
-                        'videos': ','.join(attachments['video_ids']),
-                        'extended': 1
-                    }
-                )
-
-                print('    [сохранение видео]')
-                print('      .../{}'.format(len(videos['items'])), end='\r')
-
-                try:
-                    with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
-                        res = pool.starmap(copy_func(dmp._download_video),
-                                           zip(videos['items'], itertools.repeat(af)))
-                except MaybeEncodingError:
-                    None
-
-                print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
-                                                              len(videos['items']),
+                                                              len(attachments['photo']),
                                                               len(next(os.walk(af))[2])))
 
             if attachments['docs']:

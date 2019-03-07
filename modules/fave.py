@@ -80,7 +80,7 @@ def dump_fave_posts(dmp):
                     docs.append(obj)
 
     print('Сохранение ({} вложений из {} постов):'.format(
-          sum([len(photo), len(video), len(docs)]), len(posts)))
+          sum([len(photo), len(docs)]), len(posts)))
 
     if photo:
         print('  [фото ({})]'.format(len(photo)))
