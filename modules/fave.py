@@ -3,6 +3,7 @@ import os.path
 import inspect
 import itertools
 from multiprocess import Pool
+from multiprocess.pool import MaybeEncodingError
 from operator import itemgetter
 
 from modules.utils import copy_func, get_fave
@@ -46,6 +47,8 @@ def dump_fave_posts(dmp):
     """
     folder_photo = os.path.join('dump', 'photo', 'Понравившиеся')
     os.makedirs(folder_photo, exist_ok=True)
+    folder_video = os.path.join('dump', 'video', 'Понравившиеся')
+    os.makedirs(folder_video, exist_ok=True)
     folder_docs = os.path.join('dump', 'docs', 'Понравившиеся')
     os.makedirs(folder_docs, exist_ok=True)
 
@@ -54,6 +57,7 @@ def dump_fave_posts(dmp):
     posts = get_fave(dmp._vk, 'posts')
 
     photo = []
+    video = []
     docs = []
 
     for p in posts:
@@ -68,6 +72,12 @@ def dump_fave_posts(dmp):
                     if 'access_key' in at['photo']:
                         obj['access_key'] = at['photo']['access_key']
                     photo.append(obj)
+                elif at['type'] == 'video':
+                    video.append('{oid}_{id}{access_key}'.format(
+                        oid=at['video']['owner_id'],
+                        id=at['video']['id'],
+                        access_key='_'+(at['video'].get(['access_key']) or '')
+                    ))
                 elif at['type'] == 'doc':
                     obj = {
                         'url': at['doc']['url'],
@@ -79,14 +89,33 @@ def dump_fave_posts(dmp):
                         obj['access_key'] = at['doc']['access_key']
                     docs.append(obj)
 
+    if video:
+        video = dmp._vk_tools.get_all(
+            method='video.get',
+            max_count=200,
+            values={
+                'videos': ','.join(video),
+                'extended': 1
+            }
+        )
+
     print('Сохранение ({} вложений из {} постов):'.format(
-          sum([len(photo), len(docs)]), len(posts)))
+          sum([len(photo), len(video), len(docs)]), len(posts)))
 
     if photo:
         print('  [фото ({})]'.format(len(photo)))
         with Pool(dmp._settings['POOL_PROCESSES']) as pool:
             pool.starmap(copy_func(dmp._download),
                          zip(photo, itertools.repeat(folder_photo)))
+
+    try:
+        if video:
+            print('  [видео ({})]'.format(len(video['items'])))
+            with Pool(dmp._settings['POOL_PROCESSES'] if not dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._AVAILABLE_THREADS) as pool:
+                pool.starmap(copy_func(dmp._download_video),
+                             zip(video['items'], itertools.repeat(folder_video)))
+    except MaybeEncodingError:
+        None
 
     if docs:
         print('  [документы ({})]'.format(len(docs)))
@@ -120,3 +149,32 @@ def dump_fave_photo(dmp):
         print('\x1b[2K  {}/{} (total: {})'.format(sum(filter(None, res)),
                                                   photo['count'],
                                                   len(next(os.walk(folder))[2])))
+
+
+def dump_fave_video(dmp):
+    """Видео
+
+    dmp: Dumper object
+    """
+    folder = os.path.join('dump', 'video', 'Понравившиеся')
+    os.makedirs(folder, exist_ok=True)
+
+    print('[получение понравившихся видео]')
+
+    video = get_fave(dmp._vk, 'videos')
+
+    print('Сохранение понравившихся видео:')
+
+    if video['count'] == 0:
+        print('    0/0')
+    else:
+        print('    .../{}'.format(video['count']), end='\r')
+        try:
+            with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
+                res = pool.starmap(copy_func(dmp._download_video), zip(video['items'], itertools.repeat(folder)))
+            print('\x1b[2K    {}/{} (total: {})'.format(sum([1 for i in res if i is True]),
+                                                        video['count'],
+                                                        len(next(os.walk(folder))[2])))
+        except MaybeEncodingError:
+            print('\x1b[2K    ???/{} (total: {})'.format(
+                video['count'], len(next(os.walk(folder))[2])))

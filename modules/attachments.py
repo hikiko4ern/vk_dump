@@ -4,6 +4,7 @@ import json
 import shutil
 import itertools
 from multiprocess import Pool
+from multiprocess.pool import MaybeEncodingError
 from operator import itemgetter
 
 from modules.utils import copy_func, get_attachments
@@ -128,6 +129,32 @@ def dump_attachments_only(dmp):
             print('    [фото отсутствуют]')
         del photo
 
+        # VIDEO DUMP
+        print('    [получение видео]', end='\r')
+        video = get_attachments(dmp._vk, did, 'video')
+
+        if video['count'] > 0:
+            af = os.path.join(at_folder, 'Видео')
+            os.makedirs(af, exist_ok=True)
+
+            print('\x1b[2K    [сохранение видео]')
+            print('      .../{}'.format(video['count']), end='\r')
+
+            try:
+                with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
+                    res = pool.starmap(copy_func(dmp._download_video),
+                                       zip(map(lambda t: t['attachment']['video'], video['items']), itertools.repeat(af)))
+                    print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
+                                                                  len(video['items']),
+                                                                  len(next(os.walk(af))[2])))
+                    del res
+            except MaybeEncodingError:
+                print('\x1b[2K      ???/{} (total: {})'.format(len(video['items']), len(next(os.walk(af))[2])))
+
+        else:
+            print('    [видео отсутствуют]')
+        del video
+
         # DOCS DUMP
         print('    [получение документов]', end='\r')
         docs = get_attachments(dmp._vk, did, 'doc')
@@ -154,4 +181,4 @@ def dump_attachments_only(dmp):
         print()
 
     with open('users.json', 'w', encoding='utf-8') as f:
-        json.dump(users, f, ensure_ascii=False, sort_keys=True, indent=4)
+        json.dump(users, f, ensure_ascii=False, indent=4)

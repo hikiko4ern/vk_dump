@@ -146,8 +146,7 @@ class CUI:
         dmp: Dumper object
         """
         log_info = [
-            'Login: \x1b[1;36m{}\x1b[0m'.format(
-                dmp._account['phone'] if cli_args.token else dmp.login),
+            'Login: \x1b[1;36m{}\x1b[0m'.format(dmp._account['phone']),
             'Name: \x1b[1;36m{fn} {ln}\x1b[0m'.format(
                 fn=dmp._account['first_name'], ln=dmp._account['last_name'])
         ]
@@ -238,7 +237,7 @@ class CUI:
         """
         def modules_wp():
             import webbrowser
-            webbrowser.open('https://github.com/hikiko4ern/vk_dump_modules/releases')
+            webbrowser.open('https://github.com/hikiko4ern/vk_dump/tree/master/modules')
 
         while True:
             dmp._load_modules(True)
@@ -388,10 +387,11 @@ class CUI:
                 if quite:
                     print('Обновлений не найдено')
 
-    def login(self, *msg):
+    def login(self, dmp, *msg):
         """
         Login interface
 
+        dmp: Dumper obj
         msg: str to print
         """
         def auth_handler():
@@ -403,14 +403,14 @@ class CUI:
             key = input(f'Введите капчу {captcha.get_url()} : ').strip()
             return captcha.try_again(key)
 
-        # if not cli_args.dump:
-        #     self._clear()
-        #     self._print_center(msg[0] if msg else '[для продолжения необходимо войти]',
-        #                        color='red', mod='bold', offset=2, delay=1/50)
+        if not cli_args.dump:
+            self._clear()
+            self._print_center(msg[0] if msg else '[для продолжения необходимо войти]',
+                               color='red', mod='bold', offset=2, delay=1/50)
 
         try:
             if cli_args.token:
-                vk_session = vk_api.VkApi(token=cli_args.token, app_id=6631721,
+                vk_session = vk_api.VkApi(token=cli_args.token,
                                           auth_handler=auth_handler,
                                           api_version=API_VERSION)
             else:
@@ -423,16 +423,16 @@ class CUI:
                     print(self._mods['nc'], '\tpassword: {}'.format(self._colors['cyan']), sep='', end='')
                     password = input()
                     print(self._mods['nc'], end='')
-
+                
                 vk_session = vk_api.VkApi(login, password,
-                                          app_id=6631721,
+                                          app_id=2685278,
                                           api_version=API_VERSION,
                                           scope=2+4+8+16+4096+65536+131072,
                                           auth_handler=auth_handler,
                                           captcha_handler=captcha_handler)
                 vk_session.auth()
 
-            return Dumper(vk_session, interface=self)
+            dmp.auth(vk_session, interface=self)
         except KeyboardInterrupt:
             self.goodbye()
         except vk_api.exceptions.ApiError:
@@ -481,7 +481,7 @@ class Dumper:
 
     _EXCLUDED_DIALOGS = []
 
-    def __init__(self, vk_session, interface=None):
+    def __init__(self, interface=None):
         self._interface = interface
 
         config = ConfigParser()
@@ -508,14 +508,16 @@ class Dumper:
                         if id[0] == 'c':
                             Dumper._EXCLUDED_DIALOGS.append(2000000000+int(id[1:]))
 
+        self._load_modules()
+
+    def auth(self, vk_session, interface=None):
+        self._interface = self._interface or interface
         self._vk_session = vk_session
         self._vk = self._vk_session.get_api()
         self._vk_tools = vk_api.VkTools(self._vk)
 
-        self._vk.stats.trackVisitor()
+        # self._vk.stats.trackVisitor()
         self._account = self._vk.account.getProfileInfo()
-
-        self._load_modules()
 
     def _load_modules(self, reload=False):
         if reload:
@@ -650,6 +652,11 @@ class Dumper:
 
 
 if __name__ == '__main__':
+    dmp = Dumper()
+    ch = dict([[n.replace('dump_', ''), v] for n, v in inspect.getmembers(dmp)
+               if n.startswith('dump_') and
+               not n.startswith('dump_fave_') and
+               not n.startswith('dump_menu_')])
     logger = logging.Logger(name='youtube-dl', level=logging.FATAL)
 
     # cli
@@ -660,45 +667,52 @@ if __name__ == '__main__':
     auth.add_argument('-l', '--login', type=str, metavar='\b', help='логин')
     auth.add_argument('-p', '--password', type=str, metavar='\b', help='пароль')
     auth.add_argument('-t', '--token', type=str, metavar='\b', help='access_token')
-    # dump = parser.add_argument_group('Дамп данных')
-    # dump.add_argument('--dump', type=str, nargs='*',
-    #                   choices=('photos', 'audio', 'video', 'docs', 'messages',
-    #                            'attachments', 'fave_posts', 'fave_photos',
-    #                            'fave_videos', 'all'),
-    #                   help='Данные для сохранения.')
+    dump = parser.add_argument_group('Дамп данных')
+    dump.add_argument('--dump', type=str, nargs='*',
+                      choices=ch.keys(),
+                      help='Данные для сохранения.')
 
     cli_args = parser.parse_args()
     # end of cli
 
     cui = CUI()
-    # cui.update(quite=(cli_args.dump or cli_args.update))
-    cui.update(quite=cli_args.update)
+    cui.update(quite=(cli_args.dump or cli_args.update))
 
     if cli_args.update:
         raise SystemExit
 
-    cui.welcome()
-    dmp = cui.login()
+    if cli_args.dump:
+        if (not cli_args.login or not cli_args.password) and (not cli_args.token):
+            print('|--------------------------------------------------------|')
+            print('|  Необходимо передать либо логин и пароль, либо токен.  |')
+            print('|--------------------------------------------------------|')
+        else:
+            cui.login(dmp)
+            for d in cli_args.dump:
+                ch.get(d)(dmp)
+            print()
+    else:
+        cui.welcome()
+        cui.login(dmp)
+        while True:
+            dmp._load_modules(True)
+            actions = []
+            for name, value in inspect.getmembers(dmp):
+                if name.startswith('dump_') and not name.startswith('dump_fave_'):
+                    actions.append((value.__doc__.splitlines()[0], value))
 
-    while True:
-        dmp._load_modules(True)
-        actions = []
-        for name, value in inspect.getmembers(dmp):
-            if name.startswith('dump_') and not name.startswith('dump_fave_'):
-                actions.append((value.__doc__.splitlines()[0], value))
-
-        fun, args = cui.menu(dmp, title='Дамп данных:', actions=actions,
-                             add_actions={'f': {'name': 'Все данные', 'action': dmp._dump_all, 'nl': True},
-                                          'm': {'name': 'Модули', 'action': cui.modules_menu, 'args': dmp, 'nl': True},
-                                          's': {'name': 'Настройки', 'action': cui.settings_menu, 'args': dmp},
-                                          'q': {'name': 'Выход', 'action': cui.goodbye}})
-        if fun:
-            if fun.__name__.startswith('dump_'):
-                if not fun(dmp) is False:
-                    print('\n{clr}Сохранение завершено :з{nc}'.format(
-                          clr=cui._colors['green'], nc=cui._mods['nc']))
-                    print('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
-                          clr=cui._colors['cyan'], nc=cui._mods['nc']), end='')
-                    input()
-            else:
-                fun(args) if args else fun()
+            fun, args = cui.menu(dmp, title='Дамп данных:', actions=actions,
+                                 add_actions={'f': {'name': 'Все данные', 'action': dmp._dump_all, 'nl': True},
+                                              'm': {'name': 'Модули', 'action': cui.modules_menu, 'args': dmp, 'nl': True},
+                                              's': {'name': 'Настройки', 'action': cui.settings_menu, 'args': dmp},
+                                              'q': {'name': 'Выход', 'action': cui.goodbye}})
+            if fun:
+                if fun.__name__.startswith('dump_'):
+                    if not fun(dmp) is False:
+                        print('\n{clr}Сохранение завершено :з{nc}'.format(
+                              clr=cui._colors['green'], nc=cui._mods['nc']))
+                        print('\n[нажмите {clr}Enter{nc} для продолжения]'.format(
+                              clr=cui._colors['cyan'], nc=cui._mods['nc']), end='')
+                        input()
+                else:
+                    fun(args) if args else fun()
