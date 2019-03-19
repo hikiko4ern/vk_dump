@@ -5,6 +5,7 @@ __pycache__
 # Dump folder
 dump
 
-# Configs
+# Configs & cache
 vk_config*json
 settings.ini
+users.json
