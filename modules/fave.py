@@ -56,11 +56,15 @@ def dump_fave_posts(dmp):
 
     posts = get_fave(dmp._vk, 'posts')
 
+    # from pprint import pprint
+    # print(type(posts))
+    # print(type(posts['items'][0]))
+
     photo = []
     video = []
     docs = []
 
-    for p in posts:
+    for p in posts['items']:
         if 'attachments' in p:
             for at in p['attachments']:
                 if at['type'] == 'photo':
@@ -76,7 +80,7 @@ def dump_fave_posts(dmp):
                     video.append('{oid}_{id}{access_key}'.format(
                         oid=at['video']['owner_id'],
                         id=at['video']['id'],
-                        access_key='_'+(at['video'].get(['access_key']) or '')
+                        access_key='_'+(at['video'].get('access_key') or '')
                     ))
                 elif at['type'] == 'doc':
                     obj = {
@@ -100,7 +104,7 @@ def dump_fave_posts(dmp):
         )
 
     print('Сохранение ({} вложений из {} постов):'.format(
-          sum([len(photo), len(video), len(docs)]), len(posts)))
+          sum([len(photo), len(video), len(docs)]), len(posts['items'])))
 
     if photo:
         print('  [фото ({})]'.format(len(photo)))
@@ -158,10 +162,26 @@ def dump_fave_video(dmp):
     """
     folder = os.path.join('dump', 'video', 'Понравившиеся')
     os.makedirs(folder, exist_ok=True)
-
     print('[получение понравившихся видео]')
 
-    video = get_fave(dmp._vk, 'videos')
+    video_ids = get_fave(dmp._vk, 'videos')
+    video = []
+    if video_ids:
+        for v in video_ids['items']:
+            video.append('{oid}_{id}{access_key}'.format(
+                oid=v['owner_id'],
+                id=v['id'],
+                access_key='_'+(v.get('access_key') or '')
+            ))
+    if video:
+        video = dmp._vk_tools.get_all(
+            method='video.get',
+            max_count=200,
+            values={
+                'videos': ','.join(video),
+                'extended': 1
+            }
+        )
 
     print('Сохранение понравившихся видео:')
 

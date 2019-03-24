@@ -21,7 +21,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.0'
+VERSION = '0.9.1'
 API_VERSION = '5.92'
 
 
@@ -348,43 +348,75 @@ class CUI:
         except KeyboardInterrupt:
             self.goodbye()
 
-    def update(self, **kwargs):
-        quite = 'quite' in kwargs and kwargs['quite']
-        if quite:
+    def update(self, dmp, **kwargs):
+        """
+        Updates script and modules
+
+        dmp: Dumper obj
+        """
+        import itertools
+        from multiprocess import Pool
+        from modules.utils import copy_func
+
+        def apply_args_and_kwargs(fn, args, kwargs):
+            return fn(*args, **kwargs)
+
+        def starmap_with_kwargs(pool, fn, args_iter, kwargs_iter):
+            args_for_starmap = zip(itertools.repeat(fn), args_iter, kwargs_iter)
+            return pool.starmap(apply_args_and_kwargs, args_for_starmap)
+
+        if kwargs.get('quite'):
             print('Проверка на наличие обновлений...')
         else:
             self._clear()
             self._print_center([f'{NAME} [{VERSION}]', '', 'Проверка на наличие обновлений...'],
                                color=['green', None, 'yellow'])
 
-        res = requests.get('https://api.github.com/repos/hikiko4ern/new_vk_dump/releases/latest').json()
+        res = requests.get('https://api.github.com/repos/hikiko4ern/vk_dump/releases/latest').json()
+        queue = {}
         if 'tag_name' in res:
             cv = [int(i) for i in VERSION.split('.')]
             nv = [int(i) for i in res['tag_name'].split('v')[1].split('.')]
             if (nv[0]>cv[0]) or (nv[0]==cv[0] and nv[1]>cv[1]) or (nv[0]==cv[0] and nv[1]==cv[1] and nv[2]>cv[2]):
+                if kwargs.get('quite'):
+                    print('Найдена новая версия ({})'.format(res['tag_name']))
+                else:
+                    self._print_center('Найдена новая версия ({})'.format(
+                        res['tag_name']), color='green', mod='bold', offset=-2)
+
                 for a in res['assets']:
-                    if 'name' in a and a['name'] == 'dump.py':
-                        if quite:
-                            print('Найдена новая версия ({})'.format(res['tag_name']))
+                    if 'name' in a:
+                        queue[a['name']] = a['browser_download_url']
+
+                with Pool(dmp._settings['POOL_PROCESSES']) as pool:
+                    kw = {'force': True, 'text_mode': True}
+                    q = [queue[k] for k in queue.keys() if (k != 'dump.py' and os.path.exists(os.path.join('modules', k)))]
+                    rem = starmap_with_kwargs(pool, copy_func(dmp._download),
+                                              zip(q, itertools.repeat('modules')),
+                                              itertools.repeat(kw))
+                if kwargs.get('quite'):
+                    print('Обновлено модулей: {}'.format(sum(filter(None, rem))))
+                else:
+                    self._print_center('Обновлено модулей: {}'.format(
+                        sum(filter(None, rem))), color='green', mod='bold', offset=-3)
+
+                if queue.get('dump.py'):
+                    if copy_func(dmp._download)(queue['dump.py'], os.getcwd(), force=True, text_mode=True):
+                        if kwargs.get('quite'):
+                            print('Обновление успешно!\nПерезапустите программу вручную :3')
                         else:
-                            self._print_center('Найдена новая версия ({})'.format(
-                                res['tag_name']), color='green', mod='bold', offset=-2)
-                        if Dumper._download(a['browser_download_url'], os.getcwd(), force=True, text_mode=True):
-                            if quite:
-                                print('Обновление успешно!\nПерезапустите программу вручную :3')
-                            else:
-                                self._print_center(['Обновление успешно!', 'Перезапустите программу вручную :3'],
-                                                   color=['green', 'yellow'], mod=['bold', 'bold'], offset=-5)
-                            raise SystemExit
+                            self._print_center(['Обновление успешно!', 'Перезапустите программу вручную :3'],
+                                               color=['green', 'yellow'], mod=['bold', 'bold'], offset=-5)
+                        raise SystemExit
+                    else:
+                        if kwargs.get('quite'):
+                            print('Не удалось обновить\nСкачайте и замените dump.py вручную\nhttps://github.com/hikiko4ern/vk_dump/releases/latest')
                         else:
-                            if quite:
-                                print('Не удалось обновить\nСкачайте и замените dump.py вручную\nhttps://github.com/hikiko4ern/vk_dump/releases/latest')
-                            else:
-                                self._print_center(['Не удалось обновить', 'Скачайте и замените dump.py вручную', 'https://github.com/hikiko4ern/vk_dump/releases/latest'],
-                                                   color=['red', 'yellow', None], mod=['bold', 'bold', None], offset=-3)
-                            raise SystemExit
+                            self._print_center(['Не удалось обновить', 'Скачайте и замените dump.py вручную', 'https://github.com/hikiko4ern/vk_dump/releases/latest'],
+                                               color=['red', 'yellow', None], mod=['bold', 'bold', None], offset=-3)
+                        raise SystemExit
             else:
-                if quite:
+                if kwargs.get('quite'):
                     print('Обновлений не найдено')
 
     def login(self, dmp, *msg):
@@ -423,7 +455,7 @@ class CUI:
                     print(self._mods['nc'], '\tpassword: {}'.format(self._colors['cyan']), sep='', end='')
                     password = input()
                     print(self._mods['nc'], end='')
-                
+
                 vk_session = vk_api.VkApi(login, password,
                                           app_id=2685278,
                                           api_version=API_VERSION,
@@ -676,7 +708,7 @@ if __name__ == '__main__':
     # end of cli
 
     cui = CUI()
-    cui.update(quite=(cli_args.dump or cli_args.update))
+    cui.update(dmp, quite=(cli_args.dump or cli_args.update))
 
     if cli_args.update:
         raise SystemExit
