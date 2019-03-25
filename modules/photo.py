@@ -36,7 +36,8 @@ def dump_photo(dmp):
             print('    .../{}'.format(photo['count']), end='\r')
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                 res = pool.starmap(copy_func(dmp._download),
-                                   zip(map(lambda p: sorted(p['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
+                                   zip(itertools.repeat(dmp.__class__),
+                                       map(lambda p: sorted(p['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
                                        itertools.repeat(folder)))
 
             print('\x1b[2K    {}/{} (total: {})'.format(sum(filter(None, res)),

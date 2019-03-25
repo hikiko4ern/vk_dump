@@ -34,7 +34,7 @@ def dump_docs(dmp):
         print('  .../{}'.format(docs['count']), end='\r')
         with Pool(dmp._settings['POOL_PROCESSES']) as pool:
             res = pool.starmap(copy_func(dmp._download),
-                               zip(objs, itertools.repeat(folder)))
+                               zip(itertools.repeat(dmp.__class__), objs, itertools.repeat(folder)))
 
         print('\x1b[2K    {}/{} (total: {})'.format(sum(filter(None, res)),
                                                     len(objs),

@@ -21,7 +21,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.1'
+VERSION = '0.9.2'
 API_VERSION = '5.92'
 
 
@@ -355,7 +355,7 @@ class CUI:
         dmp: Dumper obj
         """
         import itertools
-        from multiprocess import Pool
+        from multiprocessing import Pool
         from modules.utils import copy_func
 
         def apply_args_and_kwargs(fn, args, kwargs):
@@ -571,7 +571,19 @@ class Dumper:
             config['EXCLUDED_DIALOGS'] = {'id': ','.join([str(i) for i in Dumper._EXCLUDED_DIALOGS])}
             config.write(cf)
 
-    def _download(obj, folder, **kwargs):
+    def _download(dmp, obj, folder, **kwargs):
+        """
+        dmp: Dumper class
+        """
+        # import ipdb
+        # ipdb.set_trace()
+        from os import name as osname
+        if osname == 'nt':
+            import os
+            import os.path
+            import requests
+            # import shutil
+
         if not obj:
             return False
 
@@ -583,7 +595,7 @@ class Dumper:
             kwargs = obj
 
         if 'name' in kwargs:
-            fn = '_'.join(kwargs['name'].split(' ')) if Dumper._settings['REPLACE_SPACES'] else kwargs['name']
+            fn = '_'.join(kwargs['name'].split(' ')) if dmp._settings['REPLACE_SPACES'] else kwargs['name']
             if 'ext' in kwargs:
                 if fn.split('.')[-1] != kwargs['ext']:
                     fn += '.{}'.format(kwargs['ext'])
@@ -596,8 +608,8 @@ class Dumper:
         if 'access_key' in kwargs:
             url = '{}?access_key={ak}'.format(url, ak=kwargs['access_key'])
 
-        for c in Dumper._INVALID_CHARS:
-            fn = fn.replace(c, Dumper._settings['REPLACE_CHAR'])
+        for c in dmp._INVALID_CHARS:
+            fn = fn.replace(c, dmp._settings['REPLACE_CHAR'])
 
         if not os.path.exists(os.path.join(folder, fn)) or kwargs.get('force'):
             try:
@@ -621,9 +633,17 @@ class Dumper:
         else:
             return True
 
-    def _download_video(v, folder):
+    def _download_video(dmp, v, folder):
+        """
+        dmp: Dumper class
+        """
+        from os import name as osname
+        if osname == 'nt':
+            from urllib.request import urlopen
+            from re import search as research
+
         if 'platform' in v:
-            return Dumper._download_external(v['player'], folder)
+            return dmp._download_external(v['player'], folder)
         else:
             if 'player' not in v:
                 return False
@@ -635,12 +655,13 @@ class Dumper:
             url = v['player'] if ('access_key' not in v) else f"{v['player']}?access_key={v['access_key']}"
             data = urlopen(url).read()
             try:
-                return Dumper._download(research(b'https://cs.*vkuservideo.*'
-                                                 + str(min(v['height'], v['width']) if ('width' in v) else v['height']).encode()
-                                                 + b'.mp4', data).group(0).decode(),
-                                        folder,
-                                        name=v['title'] + '_' + str(v['id']),
-                                        ext='mp4')
+                return dmp._download(dmp,
+                                     research(b'https://cs.*vkuservideo.*'
+                                              + str(min(v['height'], v['width']) if ('width' in v) else v['height']).encode()
+                                              + b'.mp4', data).group(0).decode(),
+                                     folder,
+                                     name=v['title'] + '_' + str(v['id']),
+                                     ext='mp4')
             except AttributeError:
                 return False
 

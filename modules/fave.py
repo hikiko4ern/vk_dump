@@ -110,14 +110,14 @@ def dump_fave_posts(dmp):
         print('  [фото ({})]'.format(len(photo)))
         with Pool(dmp._settings['POOL_PROCESSES']) as pool:
             pool.starmap(copy_func(dmp._download),
-                         zip(photo, itertools.repeat(folder_photo)))
+                         zip(itertools.repeat(dmp.__class__), photo, itertools.repeat(folder_photo)))
 
     try:
         if video:
             print('  [видео ({})]'.format(len(video['items'])))
             with Pool(dmp._settings['POOL_PROCESSES'] if not dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._AVAILABLE_THREADS) as pool:
                 pool.starmap(copy_func(dmp._download_video),
-                             zip(video['items'], itertools.repeat(folder_video)))
+                             zip(itertools.repeat(dmp.__class__), video['items'], itertools.repeat(folder_video)))
     except MaybeEncodingError:
         None
 
@@ -125,7 +125,7 @@ def dump_fave_posts(dmp):
         print('  [документы ({})]'.format(len(docs)))
         with Pool(dmp._settings['POOL_PROCESSES']) as pool:
             pool.starmap(copy_func(dmp._download),
-                         zip(docs, itertools.repeat(folder_docs)))
+                         zip(itertools.repeat(dmp.__class__), docs, itertools.repeat(folder_docs)))
 
 
 def dump_fave_photo(dmp):
@@ -148,7 +148,8 @@ def dump_fave_photo(dmp):
         print('  .../{}'.format(photo['count']), end='\r')
         with Pool(dmp._settings['POOL_PROCESSES']) as pool:
             res = pool.starmap(copy_func(dmp._download),
-                               zip(map(lambda p: sorted(p['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
+                               zip(itertools.repeat(dmp.__class__),
+                                   map(lambda p: sorted(p['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
                                    itertools.repeat(folder)))
         print('\x1b[2K  {}/{} (total: {})'.format(sum(filter(None, res)),
                                                   photo['count'],
@@ -191,7 +192,10 @@ def dump_fave_video(dmp):
         print('    .../{}'.format(video['count']), end='\r')
         try:
             with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
-                res = pool.starmap(copy_func(dmp._download_video), zip(video['items'], itertools.repeat(folder)))
+                res = pool.starmap(copy_func(dmp._download_video),
+                                   zip(itertools.repeat(dmp.__class__),
+                                       video['items'],
+                                       itertools.repeat(folder)))
             print('\x1b[2K    {}/{} (total: {})'.format(sum([1 for i in res if i is True]),
                                                         video['count'],
                                                         len(next(os.walk(folder))[2])))

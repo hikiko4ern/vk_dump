@@ -118,7 +118,8 @@ def dump_attachments_only(dmp):
 
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                 res = pool.starmap(copy_func(dmp._download),
-                                   zip(map(lambda t: sorted(t['attachment']['photo']['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
+                                   zip(itertools.repeat(dmp.__class__),
+                                       map(lambda t: sorted(t['attachment']['photo']['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
                                        itertools.repeat(af)))
 
             print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
@@ -143,7 +144,9 @@ def dump_attachments_only(dmp):
             try:
                 with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
                     res = pool.starmap(copy_func(dmp._download_video),
-                                       zip(map(lambda t: t['attachment']['video'], video['items']), itertools.repeat(af)))
+                                       zip(itertools.repeat(dmp.__class__),
+                                           map(lambda t: t['attachment']['video'], video['items']),
+                                           itertools.repeat(af)))
                     print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                                   len(video['items']),
                                                                   len(next(os.walk(af))[2])))
@@ -168,7 +171,9 @@ def dump_attachments_only(dmp):
 
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                 res = pool.starmap(copy_func(dmp._download),
-                                   zip(map(lambda t: t['attachment']['doc'], docs['items']), itertools.repeat(af)))
+                                   zip(itertools.repeat(dmp.__class__),
+                                       map(lambda t: t['attachment']['doc'], docs['items']),
+                                       itertools.repeat(af)))
 
             print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                           len(docs['items']),

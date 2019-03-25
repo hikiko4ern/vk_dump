@@ -41,7 +41,9 @@ def dump_video(dmp):
             print('    .../{}'.format(len(video['items'])), end='\r')
             with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
                 res = pool.starmap(copy_func(dmp._download_video),
-                                   zip(video['items'], itertools.repeat(folder)))
+                                   zip(itertools.repeat(dmp.__class__),
+                                       video['items'],
+                                       itertools.repeat(folder)))
 
             print('\x1b[2K    {}/{} (total: {})'.format(sum(filter(None, res)),
                                                         len(video['items']),

@@ -498,7 +498,9 @@ def dump_messages(dmp, **kwargs):
 
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                 res = pool.starmap(copy_func(dmp._download),
-                                   zip(attachments['audio_messages'], itertools.repeat(af)))
+                                   zip(itertools.repeat(dmp.__class__),
+                                       attachments['audio_messages'],
+                                       itertools.repeat(af)))
 
             print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                           len(attachments['audio_messages']),
@@ -517,7 +519,9 @@ def dump_messages(dmp, **kwargs):
 
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                     res = pool.starmap(copy_func(dmp._download),
-                                       zip(attachments['photos'], itertools.repeat(af)))
+                                       zip(itertools.repeat(dmp.__class__),
+                                           attachments['photos'],
+                                           itertools.repeat(af)))
 
                 print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                               len(attachments['photos']),
@@ -542,7 +546,9 @@ def dump_messages(dmp, **kwargs):
                 try:
                     with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
                         res = pool.starmap(copy_func(dmp._download_video),
-                                           zip(videos['items'], itertools.repeat(af)))
+                                           zip(itertools.repeat(dmp.__class__),
+                                               videos['items'],
+                                               itertools.repeat(af)))
                 except MaybeEncodingError:
                     None
 
@@ -559,7 +565,9 @@ def dump_messages(dmp, **kwargs):
 
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                     res = pool.starmap(copy_func(dmp._download),
-                                       zip(attachments['docs'], itertools.repeat(af)))
+                                       zip(itertools.repeat(dmp.__class__),
+                                           attachments['docs'],
+                                           itertools.repeat(af)))
 
                 print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                               len(attachments['docs']),
