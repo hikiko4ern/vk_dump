@@ -21,7 +21,7 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.2'
+VERSION = '0.9.3'
 API_VERSION = '5.92'
 
 
@@ -484,6 +484,7 @@ class Dumper:
     __modules = None
 
     _AVAILABLE_THREADS = os.cpu_count()
+    _OSNAME = os.name
 
     _settings = {
         'REPLACE_SPACES': False,  # заменять пробелы на _
@@ -575,14 +576,11 @@ class Dumper:
         """
         dmp: Dumper class
         """
-        # import ipdb
-        # ipdb.set_trace()
-        from os import name as osname
-        if osname == 'nt':
-            import os
-            import os.path
-            import requests
-            # import shutil
+        # if dmp._OSNAME == 'nt':
+        import os
+        import os.path
+        import requests
+        import shutil
 
         if not obj:
             return False
@@ -637,10 +635,8 @@ class Dumper:
         """
         dmp: Dumper class
         """
-        from os import name as osname
-        if osname == 'nt':
-            from urllib.request import urlopen
-            from re import search as research
+        from urllib.request import urlopen
+        from re import search as research
 
         if 'platform' in v:
             return dmp._download_external(v['player'], folder)

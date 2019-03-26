@@ -148,7 +148,7 @@ def message_handler(dmp, msg, **kwargs):
                 r['attachments']['video_ids'].append('{oid}_{id}{access_key}'.format(
                     oid=at[tp]['owner_id'],
                     id=at[tp]['id'],
-                    access_key='_' + (at[tp]['access_key'] if 'access_key' in at[tp] else '')
+                    access_key=('_'+at[tp]['access_key'] if 'access_key' in at[tp] else '')
                 ))
             elif tp == 'audio':
                 r['messages'].append('[аудио: {artist} - {title}]'.format(
@@ -549,12 +549,11 @@ def dump_messages(dmp, **kwargs):
                                            zip(itertools.repeat(dmp.__class__),
                                                videos['items'],
                                                itertools.repeat(af)))
+                    print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
+                                                                  len(videos['items']),
+                                                                  len(next(os.walk(af))[2])))
                 except MaybeEncodingError:
-                    None
-
-                print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
-                                                              len(videos['items']),
-                                                              len(next(os.walk(af))[2])))
+                    print('\x1b[2K      ???/{} (total: {})'.format(len(videos['items']), len(next(os.walk(af))[2])))
 
             if attachments['docs']:
                 af = os.path.join(at_folder, 'Документы')

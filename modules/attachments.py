@@ -135,6 +135,22 @@ def dump_attachments_only(dmp):
         video = get_attachments(dmp._vk, did, 'video')
 
         if video['count'] > 0:
+            video_ids = []
+            for v in video['items']:
+                video_ids.append('{oid}_{id}{access_key}'.format(
+                    oid=v['attachment']['video']['owner_id'],
+                    id=v['attachment']['video']['id'],
+                    access_key=('_'+v['attachment']['video']['access_key'] if 'access_key' in v['attachment']['video'] else '')
+                ))
+            video = dmp._vk_tools.get_all(
+                method='video.get',
+                max_count=200,
+                values={
+                    'videos': ','.join(video_ids),
+                    'extended': 1
+                }
+            )
+
             af = os.path.join(at_folder, 'Видео')
             os.makedirs(af, exist_ok=True)
 
@@ -145,7 +161,7 @@ def dump_attachments_only(dmp):
                 with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
                     res = pool.starmap(copy_func(dmp._download_video),
                                        zip(itertools.repeat(dmp.__class__),
-                                           map(lambda t: t['attachment']['video'], video['items']),
+                                           video['items'],
                                            itertools.repeat(af)))
                     print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                                   len(video['items']),
