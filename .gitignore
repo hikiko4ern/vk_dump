@@ -9,3 +9,7 @@ dump
 vk_config*json
 settings.ini
 users.json
+
+# Code Coverage
+.coverage*
+coverage.xml

@@ -21,8 +21,8 @@ import vk_api
 from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.3'
-API_VERSION = '5.92'
+VERSION = '0.9.4'
+API_VERSION = '5.95'
 
 
 # ----------------------------------------------------------------------------
@@ -435,7 +435,11 @@ class CUI:
             key = input(f'Введите капчу {captcha.get_url()} : ').strip()
             return captcha.try_again(key)
 
-        if not cli_args.dump:
+        if cli_args.dump:
+            if msg:
+                print(msg[0])
+                raise SystemExit(1)
+        else:
             self._clear()
             self._print_center(msg[0] if msg else '[для продолжения необходимо войти]',
                                color='red', mod='bold', offset=2, delay=1/50)
@@ -468,11 +472,11 @@ class CUI:
         except KeyboardInterrupt:
             self.goodbye()
         except vk_api.exceptions.ApiError:
-            self._login('Произошла ошибка при попытке авторизации.')
+            self.login(dmp, 'Произошла ошибка при попытке авторизации.')
         except vk_api.exceptions.BadPassword:
-            self._login('Неправильный пароль.')
+            self.login(dmp, 'Неправильный пароль.')
         except vk_api.exceptions.Captcha:
-            self._login('Необходим ввод капчи.')
+            self.login(dmp, 'Необходим ввод капчи.')
         except Exception as e:
             raise e
 
@@ -685,15 +689,15 @@ class Dumper:
             return r
 
     def _dump_all(self):
-        for name, value in inspect.getmembers(self):
+        for name, func in inspect.getmembers(self):
             if name.startswith('dump_'):
-                value()
+                func(self)
                 print()
 
     def _dump_all_fave(self):
-        for name, value in inspect.getmembers(self):
+        for name, func in inspect.getmembers(self):
             if name.startswith('dump_fave_'):
-                value()
+                func(self)
                 print()
 
 
@@ -703,13 +707,13 @@ class Dumper:
 if __name__ == '__main__':
     dmp = Dumper()
     ch = dict([[n.replace('dump_', ''), v] for n, v in inspect.getmembers(dmp)
-               if n.startswith('dump_') and
-               not n.startswith('dump_fave_') and
-               not n.startswith('dump_menu_')])
+               if (n.startswith('dump_') or
+                   n.startswith('dump_fave_')) and
+                   not n.startswith('dump_menu_')])
     logger = logging.Logger(name='youtube-dl', level=logging.FATAL)
 
     # cli
-    parser = argparse.ArgumentParser(description=NAME)
+    parser = argparse.ArgumentParser(usage='%(prog)s [options]')
     parser.add_argument('--version', action='version', version=VERSION)
     parser.add_argument('--update', action='store_true', help='update only')
     auth = parser.add_argument_group('Аутентификация')
