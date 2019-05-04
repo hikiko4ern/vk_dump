@@ -34,7 +34,10 @@ def dump_menu_fave(dmp):
                       nc=dmp._interface._mods['nc']), end='')
                 input()
             else:
-                fun(args) if args else fun()
+                if args:
+                    fun(args)
+                else:
+                    fun()
         else:
             break
     return False
@@ -123,7 +126,7 @@ def dump_fave_posts(dmp):
                                  video['items'],
                                  itertools.repeat(folder_video)))
     except MaybeEncodingError:
-        None
+        pass
 
     if docs:
         print('  [документы ({})]'.format(len(docs)))

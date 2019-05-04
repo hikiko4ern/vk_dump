@@ -53,7 +53,7 @@ class CUI:
                 colorama.init()
                 self._ANSI_AVAILABLE = False
             else:
-                subprocess.call('', shell=True)
+                os.system('')
                 self._ANSI_AVAILABLE = True
         elif sys.platform.startswith('linux') or \
              sys.platform.startswith('darwin'):
@@ -64,7 +64,8 @@ class CUI:
         if self._ANSI_AVAILABLE:
             sys.stdout.write(f'\x1b]0;{NAME}\x07')
 
-    def _clear(self):
+    @staticmethod
+    def _clear():
         """Clears console"""
         print('\x1b[2J', '\x1b[1;1H', sep='', end='', flush=True)
 
@@ -143,7 +144,8 @@ class CUI:
             print('\x1b[?25h')
         raise SystemExit
 
-    def _print_user_info(self, dmp):
+    @staticmethod
+    def _print_user_info(dmp):
         """
         Prints info about logged user
 
@@ -278,7 +280,10 @@ class CUI:
                                                          'r': {'name': 'Перезагрузить модули', 'action': dmp._load_modules, 'args': True},
                                                          '0': {'name': 'В меню', 'action': None, 'nl': True}})
             if fun:
-                fun(args) if args else fun()
+                if args:
+                    fun(args)
+                else:
+                    fun()
             else:
                 break
         return False
