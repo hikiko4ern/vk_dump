@@ -2,7 +2,6 @@
 import argparse
 from configparser import ConfigParser
 
-import subprocess
 import os
 import os.path
 import sys
