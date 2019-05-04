@@ -289,11 +289,27 @@ def dump_messages(dmp, **kwargs):
         })
 
     print('\x1b[2K  {}/{}'.format(len(conversations['items']), conversations['count']))
-    print('[будет исключено диалогов: {}]'.format(len(dmp._EXCLUDED_DIALOGS)), end='\n\n')
+    if dmp._DUMP_DIALOGS_ONLY:
+        print('[будет сохранено диалогов: {}]'.format(len(dmp._DUMP_DIALOGS_ONLY)), end='\n\n')
+    else:
+        print('[будет исключено диалогов: {}]'.format(len(dmp._EXCLUDED_DIALOGS)), end='\n\n')
 
     print('Сохранение диалогов:')
     for con in conversations['items']:
         did = con['conversation']['peer']['id']
+
+        pass_dialog = False
+        if dmp._DUMP_DIALOGS_ONLY:
+            if did not in dmp._DUMP_DIALOGS_ONLY:
+                if dmp._settings['HIDE_EXCLUDED_DIALOGS']:
+                    continue
+                else:
+                    pass_dialog = True
+        elif did in dmp._EXCLUDED_DIALOGS:
+            if dmp._settings['HIDE_EXCLUDED_DIALOGS']:
+                continue
+            else:
+                pass_dialog = True
 
         if con['conversation']['peer']['type'] == 'user':
             if did not in users:
@@ -322,7 +338,7 @@ def dump_messages(dmp, **kwargs):
                                 os.path.join(folder, '{}_{id}'.format('_'.join(dialog_name.split(' ')), id=did) + ('.txt' if '.txt' in n else '')))
 
         print('  Диалог: {}{nfn}'.format(dialog_name, nfn=(' (as {})'.format(fn) if ' '.join(fn.split('_')[:-1]) != dialog_name else '')))
-        if did in dmp._EXCLUDED_DIALOGS:
+        if pass_dialog is True:
             print('    [исключён]\n')
             continue
 
@@ -569,7 +585,6 @@ def dump_messages(dmp, **kwargs):
                 print('\x1b[2K      {}/{} (total: {})'.format(sum(filter(None, res)),
                                                               len(attachments['docs']),
                                                               len(next(os.walk(af))[2])))
-        print()
 
     with open('users.json', 'w', encoding='utf-8') as f:
         json.dump(users, f, ensure_ascii=False, indent=4)
