@@ -1,15 +1,17 @@
-# Cache
-.idea
+# ide
+.vscode
+
+# cache
 __pycache__
 
-# Dump folder
+# dump folder
 dump
 
-# Configs & cache
+# configs & script's cache
 vk_config*json
 settings.ini
 users.json
 
-# Code Coverage
+# code Coverage
 .coverage*
 coverage.xml

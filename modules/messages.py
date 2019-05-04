@@ -10,7 +10,6 @@ from multiprocess.pool import MaybeEncodingError
 from operator import itemgetter
 
 from vk_api.exceptions import VkToolsException
-from modules.utils import copy_func
 
 users = {}
 if os.path.exists('users.json'):
@@ -33,32 +32,33 @@ def time_handler(t):
     return ' '.join(t).format_map(m)
 
 
-def users_add(vk, id):
+def users_add(vk, pid):
     """
     Gets user's info and add it to users object
 
     vk: vk_api
+    pid: profile id
     """
     global users
     try:
-        if id > 0:
-            # User: {..., first_name, last_name, id, ...} ->
-            #       {id:{name: 'first_name + last_name', length: len(name)}
-            u = vk.users.get(user_ids=id)[0]
+        if pid > 0:
+            # User: {..., first_name, last_name, pid, ...} ->
+            #       {pid:{name: 'first_name + last_name', length: len(name)}
+            u = vk.users.get(user_ids=pid)[0]
             if (u.get('deactivated') == 'deleted') and (u['first_name'] == 'DELETED'):
                 name = 'DELETED'
                 users[u['id']] = {'name': name, 'length': len(name)}
             else:
                 name = u['first_name'] + ' ' + u['last_name']
                 users[u['id']] = {'name': name, 'length': len(name)}
-        elif id < 0:
-            # Group: {..., name, id, ...} ->
-            #        {-%id%: {name: 'name', length: len(name) }
-            g = vk.groups.getById(group_id=-id)[0]
+        elif pid < 0:
+            # Group: {..., name, pid, ...} ->
+            #        {-%pid%: {name: 'name', length: len(name) }
+            g = vk.groups.getById(group_id=-pid)[0]
             name = g['name']
             users[-g['id']] = {'name': name, 'length': len(name)}
     except Exception:
-        users[id] = {'name': r'{unknown user}', 'length': 3}
+        users[pid] = {'name': r'{unknown user}', 'length': 3}
 
 
 def message_handler(dmp, msg, **kwargs):
@@ -205,10 +205,8 @@ def message_handler(dmp, msg, **kwargs):
                 r['messages'].append(f'[вложение с типом "{tp}": {json.dumps(at[tp])}]')
 
     if msg.get('action'):
-        """
-        member - совершающий действие
-        user - объект действия
-        """
+        # member - совершающий действие
+        # user - объект действия
         act = msg['action']
         tp = act['type']
 
@@ -335,7 +333,7 @@ def dump_messages(dmp, **kwargs):
         }
 
         append = {'use': dmp._settings['DIALOG_APPEND_MESSAGES'] and
-                         os.path.exists(os.path.join(folder, f'{fn}.txt'))}
+                  os.path.exists(os.path.join(folder, f'{fn}.txt'))}
         try:
             if append['use']:
                 with open(os.path.join(folder, f'{fn}.txt'), 'rb') as t:
@@ -497,7 +495,7 @@ def dump_messages(dmp, **kwargs):
             print('      .../{}'.format(len(attachments['audio_messages'])), end='\r')
 
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-                res = pool.starmap(copy_func(dmp._download),
+                res = pool.starmap(dmp._download,
                                    zip(itertools.repeat(dmp.__class__),
                                        attachments['audio_messages'],
                                        itertools.repeat(af)))
@@ -518,7 +516,7 @@ def dump_messages(dmp, **kwargs):
                 print('      .../{}'.format(len(attachments['photos'])), end='\r')
 
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-                    res = pool.starmap(copy_func(dmp._download),
+                    res = pool.starmap(dmp._download,
                                        zip(itertools.repeat(dmp.__class__),
                                            attachments['photos'],
                                            itertools.repeat(af)))
@@ -545,7 +543,7 @@ def dump_messages(dmp, **kwargs):
 
                 try:
                     with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
-                        res = pool.starmap(copy_func(dmp._download_video),
+                        res = pool.starmap(dmp._download_video,
                                            zip(itertools.repeat(dmp.__class__),
                                                videos['items'],
                                                itertools.repeat(af)))
@@ -563,7 +561,7 @@ def dump_messages(dmp, **kwargs):
                 print('      .../{}'.format(len(attachments['docs'])), end='\r')
 
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-                    res = pool.starmap(copy_func(dmp._download),
+                    res = pool.starmap(dmp._download,
                                        zip(itertools.repeat(dmp.__class__),
                                            attachments['docs'],
                                            itertools.repeat(af)))

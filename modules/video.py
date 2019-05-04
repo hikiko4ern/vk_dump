@@ -3,8 +3,6 @@ import os.path
 import itertools
 from multiprocess import Pool
 
-from modules.utils import copy_func
-
 
 def dump_video(dmp):
     """Видео (по альбомам)
@@ -40,7 +38,7 @@ def dump_video(dmp):
         else:
             print('    .../{}'.format(len(video['items'])), end='\r')
             with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
-                res = pool.starmap(copy_func(dmp._download_video),
+                res = pool.starmap(dmp._download_video,
                                    zip(itertools.repeat(dmp.__class__),
                                        video['items'],
                                        itertools.repeat(folder)))

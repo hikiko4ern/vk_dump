@@ -4,8 +4,6 @@ import itertools
 from multiprocess import Pool
 from operator import itemgetter
 
-from modules.utils import copy_func
-
 
 def dump_photo(dmp):
     """Фото (по альбомам)
@@ -35,7 +33,7 @@ def dump_photo(dmp):
         else:
             print('    .../{}'.format(photo['count']), end='\r')
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-                res = pool.starmap(copy_func(dmp._download),
+                res = pool.starmap(dmp._download,
                                    zip(itertools.repeat(dmp.__class__),
                                        map(lambda p: sorted(p['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
                                        itertools.repeat(folder)))

@@ -5,8 +5,6 @@ from multiprocess import Pool
 
 import vk_api.audio
 
-from modules.utils import copy_func
-
 
 def dump_audio(dmp):
     """Аудио
@@ -36,8 +34,10 @@ def dump_audio(dmp):
 
         print('  .../{}'.format(len(tracks)), end='\r')
         with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-            res = pool.starmap(copy_func(dmp._download),
-                               zip(itertools.repeat(dmp.__class__), audios, itertools.repeat(folder)))
+            res = pool.starmap(dmp._download,
+                               zip(itertools.repeat(dmp.__class__),
+                                   audios,
+                                   itertools.repeat(folder)))
 
         print('\x1b[2K  {}/{} (total: {})'.format(sum(filter(None, res)),
                                                   len(audios),

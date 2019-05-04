@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 from configparser import ConfigParser
-import logging
 
 import subprocess
 import os
@@ -10,18 +9,13 @@ import sys
 import time
 import importlib
 import inspect
-
-import urllib3
-from urllib.request import urlopen
 import requests
-import shutil
-from re import search as research
 
+import sentry_sdk
 import vk_api
-from youtube_dl import YoutubeDL
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.4'
+VERSION = '0.9.5'
 API_VERSION = '5.95'
 
 
@@ -52,7 +46,7 @@ class CUI:
     _ANSI_AVAILABLE = True
 
     def __init__(self):
-        if os.name == 'nt':
+        if sys.platform.startswith('win32'):
             from platform import platform
             if int(platform().split('-')[1]) < 10:
                 import colorama
@@ -61,12 +55,14 @@ class CUI:
             else:
                 subprocess.call('', shell=True)
                 self._ANSI_AVAILABLE = True
-        elif os.name == 'posix':
+        elif sys.platform.startswith('linux') or \
+             sys.platform.startswith('darwin'):
             self._ANSI_AVAILABLE = True
 
         self._width, self._height = os.get_terminal_size()
 
-        self._ANSI_AVAILABLE and sys.stdout.write(f'\x1b]0;{NAME}\x07')
+        if self._ANSI_AVAILABLE:
+            sys.stdout.write(f'\x1b]0;{NAME}\x07')
 
     def _clear(self):
         """Clears console"""
@@ -74,7 +70,8 @@ class CUI:
 
     def _print_slow(self, *args, **kwargs):
         """Prints msg symbol by symbol with some delay"""
-        print('\x1b[?25l' if self._ANSI_AVAILABLE else '')
+        if self._ANSI_AVAILABLE:
+            print('\x1b[?25l', end='')
         for s in args:
             if (s.find('\x1b') == -1) and kwargs.get('slow'):
                 for ch in s:
@@ -83,26 +80,29 @@ class CUI:
                     time.sleep(kwargs.get('delay') or 1/50)
             else:
                 print(s, end='')
-        self._ANSI_AVAILABLE and print('\x1b[?25h')
+        if self._ANSI_AVAILABLE:
+            print('\x1b[?25h', end=kwargs['sep'])
 
     def _print_center(self, msg, **kwargs):
         """Prints msg at center of console"""
+        if not kwargs.get('offset'):
+            kwargs['offset'] = 0
+        if not kwargs.get('sep'):
+            kwargs['sep'] = '\n'
+
         if isinstance(msg, list):
-            for i in range(len(msg)):
-                if not kwargs.get('offset'):
-                    kwargs['offset'] = 0
+            for i, val in enumerate(msg):
                 kwargs['color'][i] = self._colors[kwargs['color'][i]] \
                                      if ('color' in kwargs and kwargs['color'][i]) \
                                      else self._mods['nc']
                 if 'mod' in kwargs and kwargs['mod'][i]:
                     kwargs['color'][i] += self._mods[kwargs['mod'][i]]
                 self._print_slow(kwargs['color'][i] + '\x1b[{y};{x}H'.format(
-                    x=int(self._width/2 - len(msg[i])/2),
+                    x=int(self._width/2 - len(val)/2),
                     y=int(self._height/2 - len(msg)/2+i)+1 - kwargs['offset']),
-                    msg[i], self._mods['nc'], **kwargs)
+                    val, self._mods['nc'], **kwargs
+                )
         else:
-            if 'offset' not in kwargs:
-                kwargs['offset'] = 0
             kwargs['color'] = self._colors[kwargs['color']] \
                               if kwargs.get('color') \
                               else self._mods['nc']
@@ -118,16 +118,19 @@ class CUI:
         """
         Shows welcome screen
         """
-        self._ANSI_AVAILABLE and sys.stdout.write('\x1b]0;{}\x07'.format(NAME))
+        if self._ANSI_AVAILABLE:
+            sys.stdout.write('\x1b]0;{}\x07'.format(NAME))
         self._clear()
         self._print_center([NAME, 'v' + VERSION],
                            color=['green', None],
                            mod=['bold', None],
                            slow=True, delay=1/50)
 
-        self._ANSI_AVAILABLE and print('\x1b[?25l')
+        if self._ANSI_AVAILABLE:
+            print('\x1b[?25l')
         time.sleep(2)
-        self._ANSI_AVAILABLE and print('\x1b[?25h')
+        if self._ANSI_AVAILABLE:
+            print('\x1b[?25h')
 
     def goodbye(self):
         """
@@ -136,7 +139,8 @@ class CUI:
         self._clear()
         self._print_center(['Спасибо за использование скрипта :з', '', 'Made with ♥ by hikiko4ern'],
                            color=['green', None, 'red'], mod=['bold', None, 'bold'], offset=-1)
-        self._ANSI_AVAILABLE and print('\x1b[?25h')
+        if self._ANSI_AVAILABLE:
+            print('\x1b[?25h')
         raise SystemExit
 
     def _print_user_info(self, dmp):
@@ -152,10 +156,10 @@ class CUI:
         ]
         ln = max([len(l) for l in log_info])
 
-        print('\x1b[1;31m' + '-' * (ln - 7), end='\x1b[0m\n')
+        print('\x1b[1;31m┌' + '─' * (ln - 9), end='┐\x1b[0m\n')
         for l in log_info:
-            print('\x1b[31m>\x1b[0m ' + l)
-        print('\x1b[1;31m' + '-' * (ln - 7), end='\x1b[0m\n')
+            print('\x1b[1;31m│\x1b[0m ' + l + ' '*(ln-len(l)+1) + '\x1b[1;31m│\x1b[0m')
+        print('\x1b[1;31m└' + '─' * (ln - 9), end='┘\x1b[0m\n')
 
     def menu(self, dmp, title, actions, **kwargs):
         """
@@ -198,7 +202,8 @@ class CUI:
         if 'add_actions' in kwargs:
             for key in kwargs['add_actions']:
                 act = kwargs['add_actions'][key]
-                'nl' in act and act['nl'] and print()
+                if act.get('nl'):
+                    print()
                 print('{clr}[{key}]{nc} {name}'.format(key=key.upper(),
                                                        name=act['name'],
                                                        clr=self._colors['blue'],
@@ -209,7 +214,18 @@ class CUI:
             choice = input('> ').lower()
             args = None
 
-            if ('add_actions' in kwargs) and (choice in kwargs['add_actions']):
+            if choice == 'magic':
+                self._print_center(
+                    chr(0x4e)+chr(0x59)+chr(0x41)+chr(0x48),
+                    color='cyan',
+                    mod='bold',
+                    slow=True,
+                    delay=1/50,
+                    offset=-1
+                )
+                time.sleep(2)
+                return None, None
+            elif ('add_actions' in kwargs) and (choice in kwargs['add_actions']):
                 if 'args' in kwargs['add_actions'][choice]:
                     args = kwargs['add_actions'][choice]['args']
                 choice = kwargs['add_actions'][choice]['action']
@@ -356,7 +372,6 @@ class CUI:
         """
         import itertools
         from multiprocessing import Pool
-        from modules.utils import copy_func
 
         def apply_args_and_kwargs(fn, args, kwargs):
             return fn(*args, **kwargs)
@@ -391,7 +406,7 @@ class CUI:
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                     kw = {'force': True, 'text_mode': True}
                     q = [queue[k] for k in queue.keys() if (k != 'dump.py' and os.path.exists(os.path.join('modules', k)))]
-                    rem = starmap_with_kwargs(pool, copy_func(dmp._download),
+                    rem = starmap_with_kwargs(pool, dmp._download,
                                               zip(q, itertools.repeat('modules')),
                                               itertools.repeat(kw))
                 if kwargs.get('quite'):
@@ -401,7 +416,7 @@ class CUI:
                         sum(filter(None, rem))), color='green', mod='bold', offset=-3)
 
                 if queue.get('dump.py'):
-                    if copy_func(dmp._download)(queue['dump.py'], os.getcwd(), force=True, text_mode=True):
+                    if dmp._download(queue['dump.py'], os.getcwd(), force=True, text_mode=True):
                         if kwargs.get('quite'):
                             print('Обновление успешно!\nПерезапустите программу вручную :3')
                         else:
@@ -488,18 +503,17 @@ class Dumper:
     __modules = None
 
     _AVAILABLE_THREADS = os.cpu_count()
-    _OSNAME = os.name
 
     _settings = {
         'REPLACE_SPACES': False,  # заменять пробелы на _
-        'REPLACE_CHAR': '_',  # символ для замены запрещённых в Windows символов,
+        'REPLACE_CHAR': '_',  # символ для замены запрещённых
 
         'POOL_PROCESSES': 4*_AVAILABLE_THREADS,  # макс. число создаваемых процессов
-        'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео
+        'LIMIT_VIDEO_PROCESSES': True,  # ограничивать число процессов при загрузке видео?
 
-        'DIALOG_APPEND_MESSAGES': False,  # дописывать новые сообщения в файл вместо полной перезаписи
-        'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога
-        'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов
+        'DIALOG_APPEND_MESSAGES': False,  # дописывать новые сообщения в файл вместо полной перезаписи?
+        'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога?
+        'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов?
     }
 
     _settings_names = {
@@ -538,12 +552,12 @@ class Dumper:
                                                   c
 
             if len(config['EXCLUDED_DIALOGS']['id']) > 0:
-                for id in config['EXCLUDED_DIALOGS']['id'].split(','):
+                for pid in config['EXCLUDED_DIALOGS']['id'].split(','):
                     try:
-                        Dumper._EXCLUDED_DIALOGS.append(int(id))
+                        Dumper._EXCLUDED_DIALOGS.append(int(pid))
                     except ValueError:
-                        if id[0] == 'c':
-                            Dumper._EXCLUDED_DIALOGS.append(2000000000+int(id[1:]))
+                        if pid[0] == 'c':
+                            Dumper._EXCLUDED_DIALOGS.append(2000000000+int(pid[1:]))
 
         self._load_modules()
 
@@ -568,125 +582,14 @@ class Dumper:
             if not m.startswith('__'):
                 self.__setattr__(m, getattr(self.__modules, m))
 
-    def _settings_save(self):
+    @staticmethod
+    def _settings_save():
         config = ConfigParser()
 
         with open('settings.ini', 'w') as cf:
             config['SETTINGS'] = Dumper._settings
             config['EXCLUDED_DIALOGS'] = {'id': ','.join([str(i) for i in Dumper._EXCLUDED_DIALOGS])}
             config.write(cf)
-
-    def _download(dmp, obj, folder, **kwargs):
-        """
-        dmp: Dumper class
-        """
-        # if dmp._OSNAME == 'nt':
-        import os
-        import os.path
-        import requests
-        import shutil
-
-        if not obj:
-            return False
-
-        if isinstance(obj, str):
-            url = obj
-            del obj
-        elif isinstance(obj, dict):
-            url = obj.pop('url')
-            kwargs = obj
-
-        if 'name' in kwargs:
-            fn = '_'.join(kwargs['name'].split(' ')) if dmp._settings['REPLACE_SPACES'] else kwargs['name']
-            if 'ext' in kwargs:
-                if fn.split('.')[-1] != kwargs['ext']:
-                    fn += '.{}'.format(kwargs['ext'])
-        else:
-            fn = url.split('/')[-1]
-
-        if 'prefix' in kwargs:
-            fn = str(kwargs['prefix']) + '_' + fn
-
-        if 'access_key' in kwargs:
-            url = '{}?access_key={ak}'.format(url, ak=kwargs['access_key'])
-
-        for c in dmp._INVALID_CHARS:
-            fn = fn.replace(c, dmp._settings['REPLACE_CHAR'])
-
-        if not os.path.exists(os.path.join(folder, fn)) or kwargs.get('force'):
-            try:
-                if kwargs.get('text_mode'):
-                    r = requests.get(url, timeout=(30, 5))
-                    with open(os.path.join(folder, fn), 'w') as f:
-                        f.write(r.text)
-                else:
-                    r = requests.get(url, stream=True, timeout=(30, 5))
-                    with open(os.path.join(folder, fn), 'wb') as f:
-                        shutil.copyfileobj(r.raw, f)
-                return True
-            except requests.exceptions.ConnectionError:
-                return False
-            except requests.exceptions.ReadTimeout:
-                return False
-            except urllib3.exceptions.ReadTimeoutError:
-                return False
-            except Exception as e:
-                raise e
-        else:
-            return True
-
-    def _download_video(dmp, v, folder):
-        """
-        dmp: Dumper class
-        """
-        from urllib.request import urlopen
-        from re import search as research
-
-        if 'platform' in v:
-            return dmp._download_external(v['player'], folder)
-        else:
-            if 'player' not in v:
-                return False
-            if 'height' not in v:
-                v['height'] = 480 if 'photo_800' in v else \
-                              360 if 'photo_320' in v else \
-                              240
-
-            url = v['player'] if ('access_key' not in v) else f"{v['player']}?access_key={v['access_key']}"
-            data = urlopen(url).read()
-            try:
-                return dmp._download(dmp,
-                                     research(b'https://cs.*vkuservideo.*'
-                                              + str(min(v['height'], v['width']) if ('width' in v) else v['height']).encode()
-                                              + b'.mp4', data).group(0).decode(),
-                                     folder,
-                                     name=v['title'] + '_' + str(v['id']),
-                                     ext='mp4')
-            except AttributeError:
-                return False
-
-    def _download_external(url, folder):
-        def hook(i):
-            nonlocal r
-            if i['status'] == 'finished':
-                r = True
-                return r
-            elif i['status'] == 'error':
-                r = False
-                return r
-
-        if not url:
-            return False
-
-        r = None
-        if not YoutubeDL({
-                          'logger': logger,
-                          'outtmpl': os.path.join(folder, '%(title)s_%(id)s.%(ext)s'),
-                          'nooverwrites': True,
-                          'fixup': 'detect_or_warn',
-                          'progress_hooks': (hook,)
-                        }).download((url,)):
-            return r
 
     def _dump_all(self):
         for name, func in inspect.getmembers(self):
@@ -700,17 +603,21 @@ class Dumper:
                 func(self)
                 print()
 
-
 # ----------------------------------------------------------------------------
 
 
 if __name__ == '__main__':
+    sentry_sdk.init(
+        'https://588cc3d709f84953b6779479eecd931e@sentry.io/1452327',
+        release=VERSION)
+    with sentry_sdk.configure_scope() as scope:
+        scope.set_tag('os', sys.platform)
+
     dmp = Dumper()
     ch = dict([[n.replace('dump_', ''), v] for n, v in inspect.getmembers(dmp)
                if (n.startswith('dump_') or
                    n.startswith('dump_fave_')) and
                    not n.startswith('dump_menu_')])
-    logger = logging.Logger(name='youtube-dl', level=logging.FATAL)
 
     # cli
     parser = argparse.ArgumentParser(usage='%(prog)s [options]')
@@ -736,9 +643,9 @@ if __name__ == '__main__':
 
     if cli_args.dump:
         if (not cli_args.login or not cli_args.password) and (not cli_args.token):
-            print('|--------------------------------------------------------|')
-            print('|  Необходимо передать либо логин и пароль, либо токен.  |')
-            print('|--------------------------------------------------------|')
+            print('┌────────────────────────────────────────────────────────┐')
+            print('│  Необходимо передать либо логин и пароль, либо токен.  │')
+            print('└────────────────────────────────────────────────────────┘')
         else:
             cui.login(dmp)
             for d in cli_args.dump:
@@ -768,4 +675,7 @@ if __name__ == '__main__':
                               clr=cui._colors['cyan'], nc=cui._mods['nc']), end='')
                         input()
                 else:
-                    fun(args) if args else fun()
+                    if args:
+                        fun(args)
+                    else:
+                        fun()

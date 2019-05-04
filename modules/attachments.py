@@ -7,7 +7,7 @@ from multiprocess import Pool
 from multiprocess.pool import MaybeEncodingError
 from operator import itemgetter
 
-from modules.utils import copy_func, get_attachments
+from modules.utils import get_attachments
 
 users = {}
 if os.path.exists('users.json'):
@@ -15,7 +15,7 @@ if os.path.exists('users.json'):
         users = json.load(f)
 
 
-def users_add(vk, id):
+def users_add(vk, pid):
     """
     Gets user's info and add it to users object
 
@@ -23,24 +23,24 @@ def users_add(vk, id):
     """
     global users
     try:
-        if id > 0:
-            # User: {..., first_name, last_name, id, ...} ->
-            #       {id:{name: 'first_name + last_name', length: len(name)}
-            u = vk.users.get(user_ids=id)[0]
+        if pid > 0:
+            # User: {..., first_name, last_name, pid, ...} ->
+            #       {pid:{name: 'first_name + last_name', length: len(name)}
+            u = vk.users.get(user_ids=pid)[0]
             if (u.get('deactivated') == 'deleted') and (u['first_name'] == 'DELETED'):
                 name = 'DELETED'
                 users[u['id']] = {'name': name, 'length': len(name)}
             else:
                 name = u['first_name'] + ' ' + u['last_name']
                 users[u['id']] = {'name': name, 'length': len(name)}
-        elif id < 0:
-            # Group: {..., name, id, ...} ->
-            #        {-%id%: {name: 'name', length: len(name) }
-            g = vk.groups.getById(group_id=-id)[0]
+        elif pid < 0:
+            # Group: {..., name, pid, ...} ->
+            #        {-%pid%: {name: 'name', length: len(name) }
+            g = vk.groups.getById(group_id=-pid)[0]
             name = g['name']
             users[-g['id']] = {'name': name, 'length': len(name)}
     except Exception:
-        users[id] = {'name': r'{unknown user}', 'length': 3}
+        users[pid] = {'name': r'{unknown user}', 'length': 3}
 
 
 def dump_attachments_only(dmp):
@@ -117,7 +117,7 @@ def dump_attachments_only(dmp):
             print('      .../{}'.format(photo['count']), end='\r')
 
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-                res = pool.starmap(copy_func(dmp._download),
+                res = pool.starmap(dmp._download,
                                    zip(itertools.repeat(dmp.__class__),
                                        map(lambda t: sorted(t['attachment']['photo']['sizes'], key=itemgetter('width', 'height'))[-1]['url'], photo['items']),
                                        itertools.repeat(af)))
@@ -159,7 +159,7 @@ def dump_attachments_only(dmp):
 
             try:
                 with Pool(dmp._AVAILABLE_THREADS if dmp._settings['LIMIT_VIDEO_PROCESSES'] else dmp._settings['POOL_PROCESSES']) as pool:
-                    res = pool.starmap(copy_func(dmp._download_video),
+                    res = pool.starmap(dmp._download_video,
                                        zip(itertools.repeat(dmp.__class__),
                                            video['items'],
                                            itertools.repeat(af)))
@@ -186,7 +186,7 @@ def dump_attachments_only(dmp):
             print('      .../{}'.format(docs['count']), end='\r')
 
             with Pool(dmp._settings['POOL_PROCESSES']) as pool:
-                res = pool.starmap(copy_func(dmp._download),
+                res = pool.starmap(dmp._download_doc,
                                    zip(itertools.repeat(dmp.__class__),
                                        map(lambda t: t['attachment']['doc'], docs['items']),
                                        itertools.repeat(af)))

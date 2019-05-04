@@ -2,17 +2,22 @@
 
 ## VK Dump Tool
 
-[![](https://img.shields.io/github/release/hikiko4ern/vk_dump.svg?style=for-the-badge&logo=github&logoColor=white&labelColor=101010&color=2196f3)](https://github.com/hikiko4ern/vk_dump/releases/latest) ![](https://img.shields.io/static/v1.svg?message=5.95&logo=vk&logoColor=white&label=API&labelColor=101010&color=a938e4&style=for-the-badge) [![](https://img.shields.io/codecov/c/github/hikiko4ern/vk_dump.svg?style=for-the-badge&logo=codecov&logoColor=white&labelColor=101010&color=f01f7a&token=702f6d148dca4a33920d934b0c91a145)](https://codecov.io/gh/hikiko4ern/vk_dump)
+[![](https://img.shields.io/github/release/hikiko4ern/vk_dump.svg?style=for-the-badge&logo=github&logoColor=white&labelColor=101010&color=2196f3)](https://github.com/hikiko4ern/vk_dump/releases/latest) ![](https://img.shields.io/static/v1.svg?message=5.95&logo=vk&logoColor=white&label=API&labelColor=101010&color=a938e4&style=for-the-badge)
+
+[![](https://img.shields.io/lgtm/grade/python/g/hikiko4ern/vk_dump.svg?labelColor=101010&label=grade&logo=lgtm&logoColor=white&style=for-the-badge)](https://lgtm.com/projects/g/hikiko4ern/vk_dump/context:python) ![](https://img.shields.io/codacy/grade/a30e0216250b407883c093c01dffd867.svg?logo=codacy&logoColor=white&labelColor=101010&color=dc143c&style=for-the-badge) [![](https://img.shields.io/codecov/c/github/hikiko4ern/vk_dump.svg?style=for-the-badge&logo=codecov&logoColor=white&labelColor=101010&color=f01f7a&token=702f6d148dca4a33920d934b0c91a145)](https://codecov.io/gh/hikiko4ern/vk_dump)
 
 </div>
 
-## Установка
-- склонировать/скачать репозиторий
-- установить зависимости
+## v0.9.5 update
+
+```bash
+Необходимо ручное обновление!
+```
 
 ## Установка
-- склонировать/скачать репозиторий
-- установить зависимости
+
+  - склонировать/скачать репозиторий
+  - установить зависимости
 
 ## Установка зависимостей
 
@@ -52,15 +57,15 @@ python3 dump.py --token your_token_here
 
 ## Поддерживаемые для сохранения данные
 
-- [x] Фото
-- [x] Видео
-- [x] Аудио
-- [x] Документы
-- [x] Диалоги (txt) и вложения (фото, видео, документы, голосовые)
-- [x] Вложения понравившихся постов (фото, видео, документы)
-- [x] Понравившиеся фотографии
-- [x] Понравившиеся видео
-- [ ] прочее, прочее, прочее ;)
+  - [x] Фото
+  - [x] Видео
+  - [x] Аудио
+  - [x] Документы
+  - [x] Диалоги (txt) и вложения (фото, видео, документы, голосовые)
+  - [x] Вложения понравившихся постов (фото, видео, документы)
+  - [x] Понравившиеся фотографии
+  - [x] Понравившиеся видео
+  - [ ] прочее, прочее, прочее ;)
 
 ## Исключение диалогов из сохранения
 
@@ -91,4 +96,5 @@ id = 100,c60
 **A:** Обновите `youtube_dl`: `pip3 install --upgrade youtube_dl`.
 
 ## License
+
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fhikiko4ern%2Fvk_dump.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fhikiko4ern%2Fvk_dump?ref=badge_large)

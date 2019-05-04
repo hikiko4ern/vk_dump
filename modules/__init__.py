@@ -3,12 +3,10 @@ __all__ = []
 import pkgutil
 import inspect
 
-for loader, name, is_pkg in pkgutil.walk_packages(__path__):
-    module = loader.find_module(name).load_module(name)
+for loader, filename, is_pkg in pkgutil.walk_packages(__path__):
+    module = loader.find_module(filename).load_module(filename)
 
     for name, value in inspect.getmembers(module):
-        if name.startswith('__') or (not name.startswith('dump_')):
-            continue
-
-        globals()[name] = value
-        __all__.append(name)
+        if name.startswith('dump') or name.startswith('_download'):
+            globals()[name] = value
+            __all__.append(name)
