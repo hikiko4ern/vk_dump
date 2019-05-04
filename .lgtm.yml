@@ -1,0 +1,10 @@
+queries:
+- include: py/hardcoded-credentials
+- include: py/file-not-closed
+- include: py/duplicate-function
+- include: py/mostly-duplicate-class
+- include: py/mostly-duplicate-file
+- include: py/mostly-similar-file
+- include: py/ineffectual-statement
+- include: py/unnecessary-lambda
+- include: py/unused-global-variable
