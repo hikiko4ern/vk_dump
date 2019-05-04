@@ -35,7 +35,7 @@ if [[ -z ${CODECOV_TOKEN+yup} ]]; then
   echo -e "$red\0CODECOV_TOKEN not set$nm"
   exit=1
 else
-  echo -e "$info\0CODECOV_TOKEN = ${CODECOV_TOKEN}$nm\n"
+  echo -e "$info\0CODECOV_TOKEN = ${CODECOV_TOKEN}$nm"
 fi
 if [[ -z ${CODACY_PROJECT_TOKEN+yup} ]]; then
   echo -e "$red\0CODACY_PROJECT_TOKEN not set$nm"

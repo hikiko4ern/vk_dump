@@ -14,7 +14,7 @@ import sentry_sdk
 import vk_api
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.5'
+VERSION = '0.9.6-dev'
 API_VERSION = '5.95'
 
 
@@ -394,8 +394,8 @@ class CUI:
         res = requests.get('https://api.github.com/repos/hikiko4ern/vk_dump/releases/latest').json()
         queue = {}
         if 'tag_name' in res:
-            cv = [int(i) for i in VERSION.split('.')]
-            nv = [int(i) for i in res['tag_name'].split('v')[1].split('.')]
+            cv = [int(i) for i in VERSION.split('-dev')[0].split('.')]
+            nv = [int(i) for i in res['tag_name'].split('v')[1].split('-dev')[0].split('.')]
             if (nv[0]>cv[0]) or (nv[0]==cv[0] and nv[1]>cv[1]) or (nv[0]==cv[0] and nv[1]==cv[1] and nv[2]>cv[2]):
                 if kwargs.get('quite'):
                     print('Найдена новая версия ({})'.format(res['tag_name']))
@@ -517,7 +517,8 @@ class Dumper:
 
         'DIALOG_APPEND_MESSAGES': False,  # дописывать новые сообщения в файл вместо полной перезаписи?
         'KEEP_DIALOG_NAMES': True,  # сохранять имена файлов в случае изменения имени диалога?
-        'SAVE_DIALOG_ATTACHMENTS': True  # сохранять вложения из диалогов?
+        'SAVE_DIALOG_ATTACHMENTS': True,  # сохранять вложения из диалогов?
+        'HIDE_EXCLUDED_DIALOGS': True
     }
 
     _settings_names = {
@@ -529,11 +530,13 @@ class Dumper:
 
         'DIALOG_APPEND_MESSAGES': 'Дописывать новые сообщения в файл вместо полной перезаписи',
         'KEEP_DIALOG_NAMES': 'Сохранять название диалога в случае его изменения',
-        'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов'
+        'SAVE_DIALOG_ATTACHMENTS': 'Сохранять вложения из диалогов',
+        'HIDE_EXCLUDED_DIALOGS': 'Не выводить информацию об исключённых диалогах'
     }
 
     _INVALID_CHARS = ['\\', '/', ':', '*', '?', '<', '>', '|', '"', '$']
 
+    _DUMP_DIALOGS_ONLY = []
     _EXCLUDED_DIALOGS = []
 
     def __init__(self, interface=None):
@@ -544,6 +547,7 @@ class Dumper:
             with open('settings.ini', 'w') as cf:
                 config['SETTINGS'] = Dumper._settings
                 config['EXCLUDED_DIALOGS'] = {'id': ','.join([str(i) for i in Dumper._EXCLUDED_DIALOGS])}
+                config['DUMP_DIALOGS_ONLY'] = {'id': ','.join([str(i) for i in Dumper._DUMP_DIALOGS_ONLY])}
                 config.write(cf)
         else:
             for s in config['SETTINGS']:
@@ -554,14 +558,29 @@ class Dumper:
                     Dumper._settings[s.upper()] = True if c == 'True' else \
                                                   False if c == 'False' else \
                                                   c
+            try:
+                if len(config['EXCLUDED_DIALOGS']['id']) > 0:
+                    for pid in config['EXCLUDED_DIALOGS']['id'].split(','):
+                        try:
+                            Dumper._EXCLUDED_DIALOGS.append(int(pid))
+                        except ValueError:
+                            if pid[0] == 'c':
+                                Dumper._EXCLUDED_DIALOGS.append(2000000000+int(pid[1:]))
+            except KeyError:
+                config['EXCLUDED_DIALOGS'] = {'id': ','.join([str(i) for i in Dumper._EXCLUDED_DIALOGS])}
+                Dumper._settings_save()
 
-            if len(config['EXCLUDED_DIALOGS']['id']) > 0:
-                for pid in config['EXCLUDED_DIALOGS']['id'].split(','):
-                    try:
-                        Dumper._EXCLUDED_DIALOGS.append(int(pid))
-                    except ValueError:
-                        if pid[0] == 'c':
-                            Dumper._EXCLUDED_DIALOGS.append(2000000000+int(pid[1:]))
+            try:
+                if len(config['DUMP_DIALOGS_ONLY']['id']) > 0:
+                    for pid in config['DUMP_DIALOGS_ONLY']['id'].split(','):
+                        try:
+                            Dumper._DUMP_DIALOGS_ONLY.append(int(pid))
+                        except ValueError:
+                            if pid[0] == 'c':
+                                Dumper._DUMP_DIALOGS_ONLY.append(2000000000+int(pid[1:]))
+            except KeyError:
+                config['DUMP_DIALOGS_ONLY'] = {'id': ','.join([str(i) for i in Dumper._DUMP_DIALOGS_ONLY])}
+                Dumper._settings_save()
 
         self._load_modules()
 
@@ -593,6 +612,7 @@ class Dumper:
         with open('settings.ini', 'w') as cf:
             config['SETTINGS'] = Dumper._settings
             config['EXCLUDED_DIALOGS'] = {'id': ','.join([str(i) for i in Dumper._EXCLUDED_DIALOGS])}
+            config['DUMP_DIALOGS_ONLY'] = {'id': ','.join([str(i) for i in Dumper._DUMP_DIALOGS_ONLY])}
             config.write(cf)
 
     def _dump_all(self):
