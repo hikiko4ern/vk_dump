@@ -60,12 +60,12 @@ def users_add(vk, pid, **kwargs):
             g = vk.groups.getById(group_id=-pid)[0]
             name = g['name']
             users[-g['id']] = {'name': name, 'length': len(name)}
-    except AttributeError as e:
+    except AttributeError:
         if not kwargs.get('throw'):
             users_add(vk, pid, throw=True)
         else:
             users[pid] = {'name': r'{unknown user}', 'length': 14}
-    except:
+    except Exception:
         users[pid] = {'name': r'{unknown user}', 'length': 14}
 
 

@@ -48,7 +48,7 @@ def users_add(vk, pid, **kwargs):
             users_add(vk, pid, throw=True)
         else:
             users[pid] = {'name': r'{unknown user}', 'length': 14}
-    else:
+    except Exception:
         users[pid] = {'name': r'{unknown user}', 'length': 14}
 
 
