@@ -8,6 +8,10 @@
 
 </div>
 
+## Внимание
+
+На данный момент иногда пользователи определяются как `{unknown user}`. Решения проблемы пока нет ([#24](/../../issues/24)).
+
 ## Установка
 
 - склонировать/скачать репозиторий
@@ -19,7 +23,7 @@
 pip3 install -r requirements.txt
 ```
 
-Для загрузки видео из некоторых сторонних источников [`youtube-dl`](https://github.com/ytdl-org/youtube-dl) использует [`ffmpeg`](https://ffmpeg.org).
+Для загрузки видео из некоторых сторонних источников (напр, RuTube) [`youtube-dl`](https://github.com/ytdl-org/youtube-dl) использует [`ffmpeg`](https://ffmpeg.org), который необходимо установить отдельно.
 
 Если Вы используете Windows ниже 10 версии, необходимо дополнительно установить пакет `colorama`:
 
@@ -95,7 +99,7 @@ id = 100
 **A:** Просто передавайте логин аргументом (`--login`) или вводите пустой пароль на экране авторизации. В таком случае данные будут подтянуты из конфига `vk_api`.
 
 **Q: Ошибка vk_api.exceptions.AccessDenied: You don't have permissions to browse user's audio**\
-**A:** К сожалению, [`vk_api`](https://github.com/python273/vk_api) не поддерживает сохранение аудио при входе по токену. Ну или же попробуйте удалить файл `vk_config.v2.json` и переавторизироваться ¯\\\_(ツ)\_/¯
+**A:** К сожалению, [`vk_api`](https://github.com/python273/vk_api) не поддерживает сохранение аудио при входе по токену. Ну или же попробуйте удалить файл `vk_config.v2.json` и переавторизироваться, если это не Ваш случай ¯\\\_(ツ)\_/¯
 
 **Q: Ошибка RegexNotFoundError('Unable to extract %s' % \_name)**\
 **A:** Обновите `youtube_dl`: `pip3 install --upgrade youtube_dl`.

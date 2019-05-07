@@ -15,11 +15,15 @@ if os.path.exists('users.json'):
         users = json.load(f)
 
 
-def users_add(vk, pid):
+def users_add(vk, pid, **kwargs):
     """
     Gets user's info and add it to users object
 
     vk: vk_api
+    pid: profile id
+
+    possible kwargs:
+        throw - don't handle AttributeError exception if it occurs again
     """
     global users
     try:
@@ -39,8 +43,13 @@ def users_add(vk, pid):
             g = vk.groups.getById(group_id=-pid)[0]
             name = g['name']
             users[-g['id']] = {'name': name, 'length': len(name)}
-    except Exception:
-        users[pid] = {'name': r'{unknown user}', 'length': 3}
+    except AttributeError:
+        if not kwargs.get('throw'):
+            users_add(vk, pid, throw=True)
+        else:
+            users[pid] = {'name': r'{unknown user}', 'length': 14}
+    else:
+        users[pid] = {'name': r'{unknown user}', 'length': 14}
 
 
 def dump_attachments_only(dmp):
