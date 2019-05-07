@@ -59,5 +59,7 @@ coverage run -a dump.py -l $VK_LOGIN -p $VK_PASSWORD --dump $DUMP_ARGS
 if [[ $? -ne 0 ]]; then echo -e "$red\0Failed to run dump$nm"; exit 1; fi
 
 coverage report -m
-codecov
-python-codacy-coverage -r coverage.xml
+if [[ -z ${PREVENT+yup} ]]; then
+  codecov
+  python-codacy-coverage -r coverage.xml
+fi

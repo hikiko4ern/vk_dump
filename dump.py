@@ -309,9 +309,7 @@ class CUI:
             print('{ind_clr}[{ind}]{nc} {name}: {clr}{value}{nc}'.format(
                 ind=i+1,
                 name=dmp._settings_names[s],
-                value=(('GitHub' if dmp._settings[s] else 'GitLab')
-                       if (s == 'UPDATE_CHANNEL')
-                       else value),
+                value=value,
                 ind_clr=self._colors['blue'],
                 clr=color if 'color' in locals() else self._colors['yellow'],
                 nc=self._mods['nc']
