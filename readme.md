@@ -19,6 +19,8 @@
 pip3 install -r requirements.txt
 ```
 
+Для загрузки видео из некоторых сторонних источников [`youtube-dl`](https://github.com/ytdl-org/youtube-dl) использует [`ffmpeg`](https://ffmpeg.org).
+
 Если Вы используете Windows ниже 10 версии, необходимо дополнительно установить пакет `colorama`:
 
 ```bash
