@@ -14,7 +14,7 @@ import sentry_sdk
 import vk_api
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.7'
+VERSION = '0.9.9'
 API_VERSION = '5.95'
 
 

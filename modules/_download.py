@@ -67,7 +67,7 @@ def _download(dmp, obj, folder, **kwargs):
         try:
             if kwargs.get('text_mode'):
                 r = requests.get(url, timeout=(30, 5))
-                with open(os.path.join(folder, fn), 'w') as f:
+                with open(os.path.join(folder, fn), 'w', encoding='utf-8') as f:
                     f.write(r.text)
             else:
                 r = requests.get(url, stream=True, timeout=(30, 5))
