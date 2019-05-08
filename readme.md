@@ -23,9 +23,9 @@
 pip3 install -r requirements.txt
 ```
 
-Для загрузки видео из некоторых сторонних источников (напр, RuTube) [`youtube-dl`](https://github.com/ytdl-org/youtube-dl) использует [`ffmpeg`](https://ffmpeg.org), который необходимо установить отдельно.
+Для загрузки видео из некоторых сторонних источников (например, RuTube) [`youtube-dl`](https://github.com/ytdl-org/youtube-dl) использует [`ffmpeg`](https://ffmpeg.org), который необходимо установить отдельно.
 
-Если Вы используете Windows ниже 10 версии, необходимо дополнительно установить пакет `colorama`:
+Если Вы используете Windows ниже 10 версии, дополнительно установите пакет `colorama`:
 
 ```bash
 pip3 install colorama
