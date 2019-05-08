@@ -372,8 +372,9 @@ class CUI:
 
         dmp: Dumper obj
         """
+        from modules._download import _download
         import itertools
-        from multiprocessing import Pool
+        from multiprocess import Pool
 
         def apply_args_and_kwargs(fn, args, kwargs):
             return fn(*args, **kwargs)
@@ -408,8 +409,10 @@ class CUI:
                 with Pool(dmp._settings['POOL_PROCESSES']) as pool:
                     kw = {'force': True, 'text_mode': True}
                     q = [queue[k] for k in queue.keys() if (k != 'dump.py' and os.path.exists(os.path.join('modules', k)))]
-                    rem = starmap_with_kwargs(pool, dmp._download,
-                                              zip(q, itertools.repeat('modules')),
+                    rem = starmap_with_kwargs(pool, _download,
+                                              zip(
+                                                  itertools.repeat(dmp.__class__),
+                                                  q, itertools.repeat('modules')),
                                               itertools.repeat(kw))
                 if kwargs.get('quite'):
                     print('Обновлено модулей: {}'.format(sum(filter(None, rem))))
@@ -418,7 +421,7 @@ class CUI:
                         sum(filter(None, rem))), color='green', mod='bold', offset=-3)
 
                 if queue.get('dump.py'):
-                    if dmp._download(queue['dump.py'], os.getcwd(), force=True, text_mode=True):
+                    if _download(dmp.__class__, queue['dump.py'], os.getcwd(), force=True, text_mode=True):
                         if kwargs.get('quite'):
                             print('Обновление успешно!\nПерезапустите программу вручную :3')
                         else:
