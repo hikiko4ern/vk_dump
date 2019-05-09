@@ -197,7 +197,7 @@ def dump_fave_video(dmp):
 
     print('Сохранение понравившихся видео:')
 
-    if video['count'] == 0:
+    if not video or video['count'] == 0:
         print('    0/0')
     else:
         print('    .../{}'.format(video['count']), end='\r')
