@@ -5,7 +5,7 @@
 __pycache__
 
 # dump folder
-dump
+dump*
 
 # configs & script's cache
 vk_config*json

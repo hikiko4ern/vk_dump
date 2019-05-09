@@ -14,7 +14,7 @@ import sentry_sdk
 import vk_api
 
 NAME = 'VK Dump Tool'
-VERSION = '0.9.9'
+VERSION = '0.9.10'
 API_VERSION = '5.95'
 
 
@@ -58,7 +58,14 @@ class CUI:
              sys.platform.startswith('darwin'):
             self._ANSI_AVAILABLE = True
 
-        self._width, self._height = os.get_terminal_size()
+        try:
+            self._width, self._height = os.get_terminal_size()
+        except OSError as e:
+            if e.errno == 25:
+                print('Данное устройство не поддерживает полноценную работу с консолью. Используйте CLI.')
+                raise SystemExit(1)
+            else:
+                raise
 
         if self._ANSI_AVAILABLE:
             sys.stdout.write(f'\x1b]0;{NAME}\x07')
@@ -151,9 +158,9 @@ class CUI:
         dmp: Dumper object
         """
         log_info = [
-            'Login: \x1b[1;36m{}\x1b[0m'.format(dmp._account['phone']),
+            'Login: \x1b[1;36m{}\x1b[0m'.format(dmp._account.get('phone') or '***'),
             'Name: \x1b[1;36m{fn} {ln}\x1b[0m'.format(
-                fn=dmp._account['first_name'], ln=dmp._account['last_name'])
+                fn=dmp._account.get('first_name'), ln=dmp._account.get('last_name'))
         ]
         ln = max([len(l) for l in log_info])
 
@@ -636,7 +643,11 @@ if __name__ == '__main__':
         'https://588cc3d709f84953b6779479eecd931e@sentry.io/1452327',
         release=VERSION)
     with sentry_sdk.configure_scope() as scope:
-        scope.set_tag('os', sys.platform)
+        if sys.platform == 'win32':
+            from platform import platform
+            scope.set_tag('os', f'{sys.platform}_{platform().split("-")[1]}')
+        else:
+            scope.set_tag('os', sys.platform)
 
     dmp = Dumper()
     ch = dict([[n.replace('dump_', ''), v] for n, v in inspect.getmembers(dmp)
