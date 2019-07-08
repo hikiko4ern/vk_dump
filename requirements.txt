@@ -1,5 +1,5 @@
 sentry-sdk>=0.7.14
-vk_api==11.4.0
+vk_api==11.5.0
 bs4==0.0.1
 youtube_dl>=2019.04.30
 multiprocess>=0.70.7
