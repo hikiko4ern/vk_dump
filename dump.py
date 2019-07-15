@@ -639,15 +639,15 @@ class Dumper:
 
 
 if __name__ == '__main__':
-    sentry_sdk.init(
-        'https://588cc3d709f84953b6779479eecd931e@sentry.io/1452327',
-        release=VERSION)
-    with sentry_sdk.configure_scope() as scope:
-        if sys.platform == 'win32':
-            from platform import platform
-            scope.set_tag('os', f'{sys.platform}_{platform().split("-")[1]}')
-        else:
-            scope.set_tag('os', sys.platform)
+    # sentry_sdk.init(
+    #     'sentry_url_here',
+    #     release=VERSION)
+    # with sentry_sdk.configure_scope() as scope:
+    #     if sys.platform == 'win32':
+    #         from platform import platform
+    #         scope.set_tag('os', f'{sys.platform}_{platform().split("-")[1]}')
+    #     else:
+    #         scope.set_tag('os', sys.platform)
 
     dmp = Dumper()
     ch = dict([[n.replace('dump_', ''), v] for n, v in inspect.getmembers(dmp)

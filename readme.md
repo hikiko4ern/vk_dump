@@ -2,13 +2,13 @@
 
 ## VK Dump Tool
 
-[![](https://img.shields.io/github/release/hikiko4ern/vk_dump.svg?style=for-the-badge&logo=github&logoColor=white&labelColor=101010&color=2196f3)](https://github.com/hikiko4ern/vk_dump/releases/latest) ![](https://img.shields.io/static/v1.svg?message=5.95&logo=vk&logoColor=white&label=API&labelColor=101010&color=a938e4&style=for-the-badge)
-
-[![](https://img.shields.io/lgtm/grade/python/g/hikiko4ern/vk_dump.svg?labelColor=101010&color=4426bb&label=grade&logo=lgtm&logoColor=white&style=for-the-badge)](https://lgtm.com/projects/g/hikiko4ern/vk_dump/context:python) [![](https://img.shields.io/codacy/grade/a30e0216250b407883c093c01dffd867.svg?logo=codacy&logoColor=white&labelColor=101010&color=dc143c&style=for-the-badge)](https://app.codacy.com/project/hikiko4ern/vk_dump/dashboard) [![](https://img.shields.io/codecov/c/github/hikiko4ern/vk_dump.svg?style=for-the-badge&logo=codecov&logoColor=white&labelColor=101010&color=f01f7a&token=702f6d148dca4a33920d934b0c91a145)](https://codecov.io/gh/hikiko4ern/vk_dump)
+[![](https://img.shields.io/github/release/hikiko4ern/vk_dump.svg?style=flat-square&logo=github&logoColor=white&labelColor=101010&color=2196f3)](https://github.com/hikiko4ern/vk_dump/releases/latest)![](https://img.shields.io/static/v1.svg?message=5.95&logo=vk&logoColor=white&label=API&labelColor=101010&color=a938e4&style=flat-square)
 
 </div>
 
-## Внимание
+<h2 align="center">Внимание</h2>
+
+## Разработка этого скрипта прекращена. Ещё какое-то время он будет кое-как работать при всех своих багах, пока используемую версию API не прикроют (однако сохранение лайкнутых фото/видео/т.п. скоро [перестанет работать](https://vk.com/api_updates?w=wall-28551727_5754))
 
 На данный момент иногда пользователи определяются как `{unknown user}`. Решения проблемы пока нет ([#24](/../../issues/24)).
 
