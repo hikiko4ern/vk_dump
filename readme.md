@@ -103,7 +103,3 @@ id = 100
 
 **Q: Ошибка RegexNotFoundError('Unable to extract %s' % \_name)**\
 **A:** Обновите `youtube_dl`: `pip3 install --upgrade youtube_dl`.
-
-## License
-
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fhikiko4ern%2Fvk_dump.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fhikiko4ern%2Fvk_dump?ref=badge_large)
